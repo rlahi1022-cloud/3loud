@@ -1,286 +1,241 @@
-#include <iostream>                         // 표준 입출력
-#include <string>                           // 문자열 처리
-#include <thread>                           // 스레드
-#include <mutex>                            // mutex
-#include <atomic>                           // atomic 변수
-#include <unistd.h>                         // close()
-#include <arpa/inet.h>                      // sockaddr_in
-#include <sys/socket.h>                     // socket API
-#include <nlohmann/json.hpp>                // JSON 라이브러리
+// ============================================================================ // 구분선
+// 파일명: client_main.cpp                                                       // 파일명
+// 목적: UI는 유지 + Length-Prefix 통신 + 기능은 핸들러로만 호출하는 실행부 뼈대  // 목적
+// ============================================================================ // 구분선
 
-using json = nlohmann::json;                // JSON 별칭
+#include <iostream>                                                                 // 표준 입출력
+#include <string>                                                                   // 문자열
+#include <limits>                                                                   // numeric_limits
+#include <arpa/inet.h>                                                              // inet_pton, sockaddr_in
+#include <unistd.h>                                                                 // close
+#include <nlohmann/json.hpp>                                                        // nlohmann json
 
-#define SERVER_IP "127.0.0.1"               // 서버 IP
-#define SERVER_PORT 9000                    // 서버 포트
+#include "packet.h"                                                                 // C 공용 length-prefix 송수신 모듈
+#include "json_packet.hpp"                                                          // JSON 기본 템플릿(기본값/공통필드)
+#include "client_handlers.h"                                                        // 팀원들이 구현할 핸들러 선언
 
-int sock_fd;                                // 소켓 FD
-std::atomic<bool> running(true);            // 실행 상태
-std::mutex send_mutex;                      // send 보호
-int global_req_id = 1;                      // 요청 ID 증가값
-std::string session_token = "";             // 로그인 후 세션 저장
+using json = nlohmann::json;                                                        // json 별칭
 
-// =========================
-// 클라이언트 상태 정의
-// =========================
-enum ClientState
-{
-    STATE_AUTH,                             // 로그인/회원가입 상태
-    STATE_MAIN,                             // 메인 메뉴 상태
-    STATE_MESSAGE,                          // 메시지 메뉴 상태
-    STATE_FILE,                             // 파일 메뉴 상태
-    STATE_SETTING,                          // 설정 메뉴 상태
-    STATE_EXIT                              // 종료 상태
-};
+static const char* SERVER_IP   = "127.0.0.1";                                       // 서버 IP(테스트용)
+static const int   SERVER_PORT = 5010;                                              // 서버 포트(프로젝트 값으로 맞추기)
 
-// =========================
-// JSON 전송 함수
-// =========================
-void send_json(json &j)
-{
-    std::lock_guard<std::mutex> lock(send_mutex);   // 동기화
+// ============================================================================ // 콘솔 입력 버퍼 정리 유틸
+// ============================================================================ // 구분선
+static void clear_stdin_line()                                                      // cin 잔여 입력 제거 함수
+{                                                                                   // 함수 시작
+    std::cin.clear();                                                               // 입력 스트림 오류 상태 초기화
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');             // 한 줄 끝까지 버림
+}                                                                                   // 함수 끝
 
-    std::string data = j.dump();                    // JSON 문자열화
-    data += "\n";                                   // 구분용 개행 추가
+// ============================================================================ // 서버 연결 생성(1회 연결 유지 방식)
+// ============================================================================ // 구분선
+static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
+{                                                                                   // 함수 시작
+    int sock =:socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
+    if (sock < 0)                                                                   // 생성 실패 체크
+    {                                                                               // if 시작
+        std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
+        return -1;                                                                  // 실패 반환
+    }                                                                               // if 끝
 
-    send(sock_fd, data.c_str(), data.size(), 0);    // 서버 전송
-}
+    sockaddr_in serv{};                                                             // 서버 주소 구조체
+    serv.sin_family = AF_INET;                                                      // IPv4
+    serv.sin_port = htons(SERVER_PORT);                                             // 포트 네트워크 바이트 오더 변환
 
-// =========================
-// 수신 스레드
-// =========================
-void recv_thread()
-{
-    char buffer[4096];                              // 수신 버퍼
+    if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1)                         // IP 변환 실패 체크
+    {                                                                               // if 시작
+        std::cerr << "IP 변환 실패\n";                                              // 에러 출력
+       :close(sock);                                                              // 소켓 닫기
+        return -1;                                                                  // 실패 반환
+    }                                                                               // if 끝
 
-    while (running)                                 // 실행 중 반복
-    {
-        int len = recv(sock_fd, buffer, sizeof(buffer) - 1, 0); // 수신
+    if (::connect(sock, (sockaddr*)&serv, sizeof(serv)) < 0)                        // 서버 연결
+    {                                                                               // if 시작
+        std::cerr << "서버 연결 실패\n";                                            // 에러 출력
+       :close(sock);                                                              // 소켓 닫기
+        return -1;                                                                  // 실패 반환
+    }                                                                               // if 끝
 
-        if (len <= 0)                               // 종료 또는 오류
-        {
-            std::cout << "서버 연결 종료\n";       // 출력
-            running = false;                        // 종료 플래그
-            break;                                  // 루프 탈출
-        }
+    std::cout << "===============================================================\n"; // UI 라인
+    std::cout << " 서버에 연결되었습니다.\n";                                       // UI 문구
+    std::cout << "===============================================================\n"; // UI 라인
 
-        buffer[len] = '\0';                         // 문자열 종료
+    return sock;                                                                    // 연결된 소켓 반환
+}                                                                                   // 함수 끝
 
-        try
-        {
-            json res = json::parse(buffer);         // JSON 파싱
+// ============================================================================ // 프로그램 진입점
+// ============================================================================ // 구분선
+int main()                                                                          // main 시작
+{                                                                                   // 블록 시작
+    int sock = connect_server_or_die();                                             // 서버 연결(1회 연결 유지)
+    if (sock < 0)                                                                   // 연결 실패면 종료
+    {                                                                               // if 시작
+        return 1;                                                                   // 종료 코드 반환
+    }                                                                               // if 끝
 
-            int value = res["value"];               // 성공/실패 값
+    bool running  = true;                                                           // 프로그램 실행 플래그
+    bool logged_in = false;                                                         // 로그인 상태 플래그
 
-            if (value == 0)                         // 성공
-            {
-                std::cout << "[성공]\n";           // 성공 출력
+    // ===================================================================== // 메인 루프(프로그램 전체)
+    while (running)                                                                 // 프로그램이 실행 중이면 반복
+    {                                                                               // while 시작
 
-                if (res.contains("payload") && res["payload"].contains("session"))
-                {
-                    session_token = res["payload"]["session"]; // 세션 저장
-                }
-            }
-            else
-            {
-                std::cout << "[오류 코드] " << value << "\n"; // 오류 출력
-            }
-        }
-        catch (...)
-        {
-            std::cout << "JSON 파싱 실패\n";       // 예외 처리
-        }
-    }
-}
+        // ================================================================= // 1) 로그인/회원가입 루프(로그인 전 화면)
+        while (running && !logged_in)                                               // 로그인 전에는 이 메뉴만 반복
+        {                                                                           // while 시작
+            int choice = -1;                                                        // 메뉴 선택 변수
 
-// =========================
-// 회원가입 요청
-// =========================
-void request_register()
-{
-    std::string email, pw, name;                   // 입력 변수
+            system("clear");                                                        // 화면 정리(리눅스)
+            std::cout << "==========================\n";                            // UI 라인
+            std::cout << "   3LOUD    \n";                                           // UI 타이틀
+            std::cout << "==========================\n";                            // UI 라인
+            std::cout << "1. 로그인\n";                                              // UI 메뉴
+            std::cout << "2. 회원가입\n";                                            // UI 메뉴
+            std::cout << "0. 종료\n";                                                // UI 메뉴
+            std::cout << ">> ";                                                     // 입력 프롬프트
 
-    std::cout << "이메일: ";
-    std::cin >> email;                             // 입력
+            if (!(std::cin >> choice))                                              // 숫자 입력 실패(문자 등)
+            {                                                                       // if 시작
+                clear_stdin_line();                                                 // 입력 라인 정리
+                continue;                                                           // 다시 메뉴
+            }                                                                       // if 끝
+            clear_stdin_line();                                                     // 남은 개행 제거
 
-    std::cout << "비밀번호: ";
-    std::cin >> pw;
+            if (choice == 0)                                                        // 종료 선택
+            {                                                                       // if 시작
+                running = false;                                                    // 전체 종료 플래그 끄기
+                break;                                                              // 로그인 루프 탈출
+            }                                                                       // if 끝
 
-    std::cout << "이름: ";
-    std::cin >> name;
+            if (choice == 1)                                                        // 로그인 선택
+            {                                                                       // if 시작
+                // --------------------------------------------------------- // 로그인은 팀원 핸들러가 구현
+                // 규칙: 성공하면 true 반환, 실패면 false 반환                // 계약(인터페이스)
+                logged_in = handle_login(sock);                                     // 로그인 핸들러 호출
+                // --------------------------------------------------------- // 로그인 성공이면 아래 메인메뉴로 넘어감
+                continue;                                                           // 메뉴 루프 진행
+            }                                                                       // if 끝
 
-    json req;
-    req["type"] = 0x0001;                          // PKT_AUTH_REGISTER_REQ
-    req["req_id"] = global_req_id++;               // 요청 ID 증가
-    req["payload"] = {
-        {"email", email},
-        {"password", pw},
-        {"name", name}
-    };
+            if (choice == 2)                                                        // 회원가입 선택
+            {                                                                       // if 시작
+                // --------------------------------------------------------- // 회원가입은 "가입만" 하고 로그인 화면 유지
+                handle_signup(sock);                                                // 회원가입 핸들러 호출
+                // --------------------------------------------------------- // 가입 후에도 logged_in은 false 유지
+                continue;                                                           // 다시 로그인/회원가입 메뉴로
+            }                                                                       // if 끝
+        }                                                                           // 로그인/회원가입 루프 끝
 
-    send_json(req);                                // 전송
-}
+        if (!running)                                                               // 종료 선택이면 빠져나감
+        {                                                                           // if 시작
+            break;                                                                  // 메인 루프 탈출
+        }                                                                           // if 끝
 
-// =========================
-// 로그인 요청
-// =========================
-void request_login()
-{
-    std::string email, pw;
+        // ================================================================= // 2) 로그인 후 메인 메뉴 루프
+        while (running && logged_in)                                                // 로그인 상태에서만 반복
+        {                                                                           // while 시작
+            int choice = -1;                                                        // 메뉴 선택 변수
 
-    std::cout << "이메일: ";
-    std::cin >> email;
+            system("clear");                                                        // 화면 정리
+            std::cout << "============================\n";                          // UI 라인
+            std::cout << "        메뉴\n";                                           // UI 제목
+            std::cout << "============================\n";                          // UI 라인
+            std::cout << "1. 파일\n";                                                // 채팅방 자리 -> 파일 메뉴로 변경
+            std::cout << "2. 메시지\n";                                              // 메시지 메뉴
+            std::cout << "3. 개인 설정\n";                                           // 개인설정 메뉴
+            std::cout << "4. 로그 아웃\n";                                           // 로그아웃
+            std::cout << "5. 프로그램 종료\n\n";                                     // 프로그램 종료
+            std::cout << "[입력] ";                                                // 입력 프롬프트
 
-    std::cout << "비밀번호: ";
-    std::cin >> pw;
+            if (!(std::cin >> choice))                                              // 입력 실패 처리
+            {                                                                       // if 시작
+                clear_stdin_line();                                                 // 입력 라인 정리
+                continue;                                                           // 다시 메뉴
+            }                                                                       // if 끝
+            clear_stdin_line();                                                     // 남은 개행 제거
 
-    json req;
-    req["type"] = 0x0003;                          // PKT_AUTH_LOGIN_REQ
-    req["req_id"] = global_req_id++;
-    req["payload"] = {
-        {"email", email},
-        {"password", pw}
-    };
+            if (choice == 4)                                                        // 로그아웃
+            {                                                                       // if 시작
+                handle_logout(sock);                                                // 로그아웃 훅(필요시 서버 통지)
+                logged_in = false;                                                  // 로그인 상태 해제
+                break;                                                              // 메인 메뉴 루프 탈출 -> 로그인 화면으로
+            }                                                                       // if 끝
 
-    send_json(req);
-}
+            if (choice == 5)                                                        // 프로그램 종료
+            {                                                                       // if 시작
+                running = false;                                                    // 전체 종료 플래그
+                break;                                                              // 메인 메뉴 루프 탈출
+            }                                                                       // if 끝
 
-// =========================
-// 메시지 전송 요청
-// =========================
-void request_send_message()
-{
-    if (session_token.empty())                     // 세션 없으면 차단
-    {
-        std::cout << "로그인 필요\n";
-        return;
-    }
+            // ================================================================= // 파일 메뉴
+            if (choice == 1)                                                        // 파일 메뉴 선택
+            {                                                                       // if 시작
+                // ------------------------------------------------------------ // 파일 메뉴도 "UI 유지 + 핸들러 호출"만
+                bool back = false;                                                  // 뒤로가기 플래그
+                while (!back && running && logged_in)                               // 뒤로가기 전까지 반복
+                {                                                                   // while 시작
+                    int sub = -1;                                                   // 파일 서브메뉴 선택 변수
 
-    std::string receiver, content;
+                    system("clear");                                                // 화면 정리
+                    std::cout << "============================\n";                  // UI 라인
+                    std::cout << "        파일 메뉴\n";                             // UI 제목
+                    std::cout << "============================\n";                  // UI 라인
+                    std::cout << "1. 파일 목록\n";                                  // 파일 목록
+                    std::cout << "2. 파일 업로드\n";                                // 파일 업로드
+                    std::cout << "3. 파일 다운로드\n";                              // 파일 다운로드
+                    std::cout << "4. 뒤로가기\n";                                   // 뒤로가기
+                    std::cout << "[입력] ";                                       // 입력 프롬프트
 
-    std::cout << "받는 사람 이메일: ";
-    std::cin >> receiver;
+                    if (!(std::cin >> sub))                                         // 입력 실패 처리
+                    {                                                               // if 시작
+                        clear_stdin_line();                                         // 입력 정리
+                        continue;                                                   // 다시 서브메뉴
+                    }                                                               // if 끝
+                    clear_stdin_line();                                             // 개행 제거
 
-    std::cin.ignore();
+                    if (sub == 4)                                                   // 뒤로가기
+                    {                                                               // if 시작
+                        back = true;                                                // 루프 종료
+                        continue;                                                   // 상위 메뉴로
+                    }                                                               // if 끝
 
-    std::cout << "메시지 내용: ";
-    std::getline(std::cin, content);
+                    if (sub == 1)                                                   // 파일 목록
+                    {                                                               // if 시작
+                        handle_file_list(sock);                                     // 파일 목록 핸들러 호출
+                        continue;                                                   // 서브메뉴로 복귀
+                    }                                                               // if 끝
 
-    json req;
-    req["type"] = 0x0010;                          // PKT_MSG_SEND_REQ
-    req["req_id"] = global_req_id++;
-    req["payload"] = {
-        {"session", session_token},
-        {"receiver", receiver},
-        {"content", content}
-    };
+                    if (sub == 2)                                                   // 파일 업로드
+                    {                                                               // if 시작
+                        handle_file_upload(sock);                                   // 업로드 핸들러 호출
+                        continue;                                                   // 서브메뉴로 복귀
+                    }                                                               // if 끝
 
-    send_json(req);
-}
+                    if (sub == 3)                                                   // 파일 다운로드
+                    {                                                               // if 시작
+                        handle_file_download(sock);                                 // 다운로드 핸들러 호출
+                        continue;                                                   // 서브메뉴로 복귀
+                    }                                                               // if 끝
+                }                                                                   // 파일 서브메뉴 루프 끝
 
-// =========================
-// 메인 함수
-// =========================
-int main()
-{
-    sock_fd = socket(AF_INET, SOCK_STREAM, 0);     // 소켓 생성
+                continue;                                                           // 메인 메뉴로 복귀
+            }                                                                       // 파일 메뉴 if 끝
 
-    sockaddr_in server_addr;                       // 서버 주소
-    server_addr.sin_family = AF_INET;              // IPv4
-    server_addr.sin_port = htons(SERVER_PORT);     // 포트 설정
-    inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr); // IP 변환
+            // ================================================================= // 메시지 메뉴
+            if (choice == 2)                                                        // 메시지 메뉴 선택
+            {                                                                       // if 시작
+                handle_message_menu(sock);                                          // 메시지 메뉴 핸들러(내부 서브메뉴 포함 가능)
+                continue;                                                           // 메인 메뉴로 복귀
+            }                                                                       // if 끝
 
-    if (connect(sock_fd, (sockaddr*)&server_addr, sizeof(server_addr)) < 0)
-    {
-        std::cout << "서버 연결 실패\n";
-        return 1;
-    }
+            // ================================================================= // 개인 설정 메뉴
+            if (choice == 3)                                                        // 개인 설정 메뉴 선택
+            {                                                                       // if 시작
+                handle_profile_menu(sock);                                          // 개인설정 핸들러(닉변 등)
+                continue;                                                           // 메인 메뉴로 복귀
+            }                                                                       // if 끝
+        }                                                                           // 로그인 후 메인 메뉴 루프 끝
+    }                                                                               // 메인 루프 끝
 
-    std::cout << "서버 연결 성공\n";
-
-    std::thread t(recv_thread);                    // 수신 스레드 시작
-
-    ClientState state = STATE_AUTH;                // 초기 상태 설정
-
-    while (state != STATE_EXIT && running)         // 상태 기반 루프
-    {
-        switch (state)
-        {
-            case STATE_AUTH:
-            {
-                std::cout << "\n1.회원가입 2.로그인 0.종료\n";
-                int choice;
-                std::cin >> choice;
-
-                if (choice == 1)
-                    request_register();
-                else if (choice == 2)
-                {
-                    request_login();
-                    state = STATE_MAIN;            // 로그인 후 메인 이동
-                }
-                else if (choice == 0)
-                    state = STATE_EXIT;
-
-                break;
-            }
-
-            case STATE_MAIN:
-            {
-                std::cout << "\n1.메시지 2.파일 3.설정 4.로그아웃\n";
-                int choice;
-                std::cin >> choice;
-
-                if (choice == 1)
-                    state = STATE_MESSAGE;
-                else if (choice == 2)
-                    state = STATE_FILE;
-                else if (choice == 3)
-                    state = STATE_SETTING;
-                else if (choice == 4)
-                {
-                    session_token = "";            // 세션 초기화
-                    state = STATE_AUTH;            // 인증 상태로 복귀
-                }
-
-                break;
-            }
-
-            case STATE_MESSAGE:
-            {
-                std::cout << "\n1.메시지 보내기 0.뒤로가기\n";
-                int choice;
-                std::cin >> choice;
-
-                if (choice == 1)
-                    request_send_message();
-                else if (choice == 0)
-                    state = STATE_MAIN;
-
-                break;
-            }
-
-            case STATE_FILE:
-            {
-                std::cout << "파일 기능 구현 예정\n";
-                state = STATE_MAIN;                // 임시 복귀
-                break;
-            }
-
-            case STATE_SETTING:
-            {
-                std::cout << "설정 기능 구현 예정\n";
-                state = STATE_MAIN;                // 임시 복귀
-                break;
-            }
-
-            default:
-                state = STATE_EXIT;                // 예외 종료
-        }
-    }
-
-    running = false;                               // 종료 플래그
-    close(sock_fd);                                // 소켓 닫기
-    t.join();                                       // 수신 스레드 종료 대기
-
-    return 0;
-}
+   :close(sock);                                                                  // 소켓 종료
+    return 0;                                                                       // 종료 코드
+}                                                                                   // main 끝
