@@ -17,7 +17,6 @@ extern "C" {                                // C 모듈을 C 링크로 사용
 #include "./protocol/packet.h"           // length-prefix send/recv 공용 모듈
 }                                           // extern "C" 끝
 
-
 using json = nlohmann::json;                                                       
 
 static const char* SERVER_IP   = "127.0.0.1";                                       // 서버 IP
@@ -31,7 +30,7 @@ static void clear_stdin_line()                                                  
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');             // 한 줄 끝까지 버림
 }                                                                                   // 함수 끝
 
-// ============================================================================ // 서버 연결 생성(1회 연결 유지 방식)
+// ============================================================================ // 서버 연결 생성
 static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
 {                                                                                   // 함수 시작
     int sock =:socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
@@ -58,19 +57,16 @@ static int connect_server_or_die()                                              
        :close(sock);                                                              // 소켓 닫기
         return -1;                                                                  // 실패 반환
     }                                                                               
-
     std::cout << "===============================================================\n"; 
     std::cout << " 서버에 연결되었습니다.\n";                                      
     std::cout << "===============================================================\n"; 
-
-    return sock;                                                                    // 연결된 소켓 반환
-}                                                                                   // 함수 끝
-
+    return sock;                                                                    
+}                                                                                 
 // ============================================================================ 
 int main()                                                                          // main 시작
 {                                                                                   // 블록 시작
     int sock = connect_server_or_die();                                             // 서버 연결(1회 연결 유지)
-    if (sock < 0)                                                                   // 연결 실패면 종료
+    if (sock < 0)                                                                   
     {                                                                               
         return 1;                                                                   
     }                                                                               
@@ -111,7 +107,7 @@ int main()                                                                      
             if (choice == 1)                                                        // 로그인 선택
             {                                                                       
                 // --------------------------------------------------------- // 로그인은 팀원 핸들러가 구현
-                // 규칙: 성공하면 true 반환, 실패면 false 반환                // 계약(인터페이스)
+                // 규칙: 성공하면 true 반환, 실패면 false 반환                
                 logged_in = handle_login(sock);                                     // 로그인 핸들러 호출
                 // --------------------------------------------------------- // 로그인 성공이면 아래 메인메뉴로 넘어감
                 continue;                                                           // 메뉴 루프 진행
@@ -124,13 +120,11 @@ int main()                                                                      
                 // --------------------------------------------------------- // 가입 후에도 logged_in은 false 유지
                 continue;                                                           // 다시 로그인/회원가입 메뉴로
             }                                                                       
-        }                                                                           // 로그인/회원가입 루프 끝
-
+        }                                                                           
         if (!running)                                                               // 종료 
         {                                                                           
             break;                                                                 
         }                                                                           
-
         // ================================================================= // 2) 로그인 후 메인 메뉴 루프
         while (running && logged_in)                                                // 로그인 상태에서만 반복
         {                                                                           // while 시작
@@ -138,9 +132,9 @@ int main()                                                                      
 
             system("clear");                                                        // 화면 정리
             std::cout << "============================\n";                          
-            std::cout << "        메뉴\n";                                           // UI 제목
+            std::cout << "        메뉴\n";                                          
             std::cout << "============================\n";                          
-            std::cout << "1. 파일\n";                                                // 채팅방 자리 -> 파일 메뉴로 변경
+            std::cout << "1. 파일\n";                                               
             std::cout << "2. 메시지\n";                                              // 메시지 메뉴
             std::cout << "3. 개인 설정\n";                                           // 개인설정 메뉴
             std::cout << "4. 로그 아웃\n";                                           // 로그아웃
@@ -156,15 +150,14 @@ int main()                                                                      
 
             if (choice == 4)                                                        // 로그아웃
             {                                                                       
-                handle_logout(sock);                                                // 로그아웃 훅(필요시 서버 통지)
+                handle_logout(sock);                                                
                 logged_in = false;                                                  // 로그인 상태 해제
-                break;                                                              // 메인 메뉴 루프 탈출 -> 로그인 화면으로
+                break;                                                              
             }                                                                       
-
-            if (choice == 5)                                                        // 프로그램 종료
+            if (choice == 5)                             
             {                                                                       
-                running = false;                                                    // 전체 종료 플래그
-                break;                                                              // 메인 메뉴 루프 탈출
+                running = false;                            
+                break;                                                              
             }                                                                       
 
             // ================================================================= // 파일 메뉴
