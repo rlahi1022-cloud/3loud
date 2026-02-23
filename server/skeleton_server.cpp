@@ -1,9 +1,9 @@
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 파일명: server.cpp                                                          // 파일명 설명
 // 목적: epoll 기반 메인루프 + worker thread + DB(Worker 전용) + length-prefix // 목적 설명
 // 전제: common/packet.c, common/packet.h 를 공용 모듈로 사용                  // 전제 설명
 // 플랫폼: Linux                                                                // 플랫폼 설명
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 #include <iostream>                         // 표준 입출력 사용
 #include <string>                           // std::string 사용
@@ -26,6 +26,9 @@
 #include <sys/eventfd.h>                    // eventfd
 #include <nlohmann/json.hpp>                // JSON 라이브러리 사용
 #include <mariadb/conncpp.hpp>              // MariaDB C++ Connector 사용
+#include "json_packet.hpp"                  // JSON 패킷 템플릿
+#include "./protocol/protocal.h"
+#include "./protocol/protocol_schema.h"
 
 extern "C" {                                // C 모듈을 C 링크로 사용
 #include "packet.h"                         // length-prefix send/recv 공용 모듈
@@ -36,29 +39,12 @@ using json = nlohmann::json;                // json 타입 별칭
 static constexpr int EPOLL_MAX_EVENTS = 128; // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
 static constexpr int DEFAULT_PORT = 5010;   // 기본 포트
-static constexpr int LISTEN_BACKLOG = 64;   // listen backlog
+static constexpr int LISTEN_BACKLOG = 64;   // listen 
 
-// ============================================================================ // 구분 주석
-// 프로토콜 타입(예시)
-// 실제론 네가 만든 protocol.h의 enum 값을 include 해서 쓰면 됨
-// 여기서는 서버 뼈대라 자리만 잡음
-// ============================================================================ // 구분 주석
-
-enum PacketType : int {                     // 패킷 타입 enum 시작
-    PKT_AUTH_SIGNUP_REQ  = 0x0101,          // 회원가입 요청
-    PKT_AUTH_LOGIN_REQ   = 0x0102,          // 로그인 요청
-    PKT_MSG_SEND_REQ     = 0x0201,          // 메시지 전송 요청
-    PKT_MSG_LIST_REQ     = 0x0203,          // 메시지 목록 요청
-    PKT_FILE_UPLOAD_REQ  = 0x0301,          // 파일 업로드 요청
-    PKT_FILE_DOWNLOAD_REQ= 0x0303,          // 파일 다운로드 요청
-    PKT_RESP_OK          = 0x8000,          // OK 응답(범용)
-    PKT_RESP_ERR         = 0x8001           // ERR 응답(범용)
-};                                          // enum 끝
-
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 세션 구조체: epoll 스레드에서만 접근/수정하는 것을 기본 원칙으로 둠
 // write_buf는 epoll 스레드가 flush 하며, worker는 응답 큐에만 넣음
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 struct Session {                            // 세션 구조체 시작
     int sock = -1;                          // 클라이언트 소켓 fd
@@ -67,9 +53,9 @@ struct Session {                            // 세션 구조체 시작
     std::string write_buf;                  // 전송 대기 버퍼
 };                                          // 세션 구조체 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // Task / Response: epoll -> worker / worker -> epoll 교환용
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 struct Task {                               // 작업 요청 구조체 시작
     int sock = -1;                          // 요청이 온 소켓
@@ -81,9 +67,9 @@ struct ResponseTask {                       // 응답 작업 구조체 시작
     std::string payload;                    // JSON 문자열 payload
 };                                          // 응답 작업 구조체 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 전역(공유) 큐: worker 스레드와 epoll 스레드가 공유하므로 mutex로 보호
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 static std::queue<Task> g_req_q;            // 요청 큐
 static std::queue<ResponseTask> g_res_q;    // 응답 큐
@@ -92,9 +78,9 @@ static std::mutex g_res_m;                  // 응답 큐 mutex
 static std::condition_variable g_req_cv;    // worker를 깨우는 CV
 static std::atomic<bool> g_running(true);   // 서버 실행 플래그(원자)
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 유틸: non-blocking 설정
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 static bool set_nonblocking(int fd) {       // 논블로킹 설정 함수 시작
     int flags = fcntl(fd, F_GETFL, 0);      // 현재 플래그 읽기
@@ -103,9 +89,9 @@ static bool set_nonblocking(int fd) {       // 논블로킹 설정 함수 시작
     return true;                            // 성공
 }                                           // 함수 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 유틸: 안전한 close + 에러 무시
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 static void safe_close(int fd) {            // 안전 close 함수 시작
     if (fd >= 0) {                          // 유효 fd인지 확인
@@ -113,9 +99,9 @@ static void safe_close(int fd) {            // 안전 close 함수 시작
     }                                       // if 끝
 }                                           // 함수 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // JSON 응답 생성 helper: 팀원이 핸들에서 이걸로 통일하면 좋음
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 static std::string make_resp(int type,      // 응답 타입
                              int code,      // 내부 코드(성공=0 등)
@@ -129,10 +115,10 @@ static std::string make_resp(int type,      // 응답 타입
     return res.dump();                      // JSON 문자열로 반환
 }                                           // 함수 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // 핸들 함수 자리: 팀원들이 이 함수들만 작성하면 됨
 // DB 커넥션은 worker thread 안에서만 사용(요구사항 YES)
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 static std::string handle_auth_signup(const json& req, sql::Connection& db) { // 회원가입 핸들
     json payload = req.value("payload", json::object());                      // payload 방어 파싱
@@ -170,11 +156,11 @@ static std::string handle_msg_send(const json& req, sql::Connection& db) {    //
     return make_resp(PKT_RESP_OK, 0, "msg_send placeholder", json::object()); // 임시 성공
 }                                                                              // 함수 끝
 
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 // Worker Thread: 요청 처리 담당 (DB 연결은 여기서 생성해서 전용으로 사용)
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
-static void worker_loop(std::string db_url, std::string db_user, std::string db_pw) { // 워커 루프
+static void worker_loop(std::string db_url, std::string db_user, std::string db_pw) { 
     sql::Driver* driver = nullptr;                                                   // 드라이버 포인터
     std::unique_ptr<sql::Connection> conn;                                           // DB 커넥션
     try {                                                                            // try 시작
@@ -186,7 +172,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             st->execute("SET NAMES 'utf8mb4'");                                      // 인코딩 설정
         }                                                                            // 블록 끝
         std::cout << "[Worker] DB connected\n";                                      // 로그 출력
-    } catch (const sql::SQLException& e) {                                           // SQL 예외 처리
+    } 
+    catch (const sql::SQLException& e) 
+    {                                           
         std::cerr << "[Worker] DB connect failed: " << e.what() << "\n";             // 오류 출력
         g_running = false;                                                           // 서버 종료 플래그
         return;                                                                      // 워커 종료
@@ -223,20 +211,20 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                     break;                                                           // break
                 }                                                                    // default 블록 끝
             }                                                                        // switch 끝
-        } catch (const std::exception& e) {                                          // 파싱/처리 예외
+        } 
+        catch (const std::exception& e) 
+        {                                          
             out_payload = make_resp(PKT_RESP_ERR, -1, std::string("Exception: ") + e.what(), json::object()); // 에러 응답
-        }                                                                            // try-catch 끝
-
+        }                                                                          
         {                                                                            // 응답 큐 lock 블록
             std::lock_guard<std::mutex> lk(g_res_m);                                 // 응답 큐 lock
             g_res_q.push(ResponseTask{task.sock, out_payload});                       // 응답 작업 push
         }                                                                            // lock 블록 끝
     }                                                                                // while 끝
-}                                                                                    // worker_loop 끝
-
-// ============================================================================ // 구분 주석
+}                                                                                    // 
+// ============================================================================ 
 // epoll 서버 본체
-// ============================================================================ // 구분 주석
+// ============================================================================ 
 
 int main(int argc, char** argv) {                                                     // main 시작
     signal(SIGPIPE, SIG_IGN);                                                         // SIGPIPE 무시(끊긴 소켓 send 방지)
@@ -513,10 +501,9 @@ int main(int argc, char** argv) {                                               
         safe_close(kv.second.sock);                                                   // close
     }                                                                                 // for 끝
 
-    safe_close(wake_fd);                                                              // wake close
-    safe_close(epfd);                                                                 // epoll close
-    safe_close(listen_fd);                                                            // listen close
-
-    std::cout << "[Server] stopped\n";                                                // 종료 로그
-    return 0;                                                                         // main 종료
-}                                                                                     // main 끝
+    safe_close(wake_fd);                                                             
+    safe_close(epfd);                                                                
+    safe_close(listen_fd);                                                            
+    std::cout << "[Server] stopped\n";                                               
+    return 0;                                                                         
+}                                                                                    
