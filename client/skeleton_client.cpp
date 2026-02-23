@@ -12,7 +12,8 @@
 
 #include "packet.h"                                                                 // C 공용 length-prefix 송수신 모듈
 #include "json_packet.hpp"                                                          // JSON 기본 템플릿(기본값/공통필드)
-#include "client_handlers.h"                                                        // 팀원들이 구현할 핸들러 선언
+#include "client_handlers.h"
+#include "../client_handle/file_client.hpp"                                                       // 팀원들이 구현할 핸들러 선언
 
 using json = nlohmann::json;                                                        // json 별칭
 
@@ -31,7 +32,7 @@ static void clear_stdin_line()                                                  
 // ============================================================================ // 구분선
 static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
 {                                                                                   // 함수 시작
-    int sock =:socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
+    int sock = ::socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
     if (sock < 0)                                                                   // 생성 실패 체크
     {                                                                               // if 시작
         std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
@@ -45,14 +46,14 @@ static int connect_server_or_die()                                              
     if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1)                         // IP 변환 실패 체크
     {                                                                               // if 시작
         std::cerr << "IP 변환 실패\n";                                              // 에러 출력
-       :close(sock);                                                              // 소켓 닫기
+        ::close(sock);                                                              // 소켓 닫기
         return -1;                                                                  // 실패 반환
     }                                                                               // if 끝
 
     if (::connect(sock, (sockaddr*)&serv, sizeof(serv)) < 0)                        // 서버 연결
     {                                                                               // if 시작
         std::cerr << "서버 연결 실패\n";                                            // 에러 출력
-       :close(sock);                                                              // 소켓 닫기
+        ::close(sock);                                                              // 소켓 닫기
         return -1;                                                                  // 실패 반환
     }                                                                               // if 끝
 
@@ -66,7 +67,7 @@ static int connect_server_or_die()                                              
 // ============================================================================ // 프로그램 진입점
 // ============================================================================ // 구분선
 int main()                                                                          // main 시작
-{                                                                                   // 블록 시작
+{    
     int sock = connect_server_or_die();                                             // 서버 연결(1회 연결 유지)
     if (sock < 0)                                                                   // 연결 실패면 종료
     {                                                                               // if 시작
@@ -181,8 +182,9 @@ int main()                                                                      
                     std::cout << "============================\n";                  // UI 라인
                     std::cout << "1. 파일 목록\n";                                  // 파일 목록
                     std::cout << "2. 파일 업로드\n";                                // 파일 업로드
-                    std::cout << "3. 파일 다운로드\n";                              // 파일 다운로드
-                    std::cout << "4. 뒤로가기\n";                                   // 뒤로가기
+                    std::cout << "3. 파일 다운로드\n";                             // 파일 다운로드
+                    std::cout << "4. 파일 삭제\n";                             // 파일 삭제
+                    std::cout << "5. 뒤로가기\n";                                   // 뒤로가기
                     std::cout << "[입력] ";                                       // 입력 프롬프트
 
                     if (!(std::cin >> sub))                                         // 입력 실패 처리
@@ -192,29 +194,16 @@ int main()                                                                      
                     }                                                               // if 끝
                     clear_stdin_line();                                             // 개행 제거
 
-                    if (sub == 4)                                                   // 뒤로가기
+                    if (sub == 5)                                                   // 뒤로가기
                     {                                                               // if 시작
                         back = true;                                                // 루프 종료
                         continue;                                                   // 상위 메뉴로
                     }                                                               // if 끝
 
-                    if (sub == 1)                                                   // 파일 목록
-                    {                                                               // if 시작
-                        handle_file_list(sock);                                     // 파일 목록 핸들러 호출
-                        continue;                                                   // 서브메뉴로 복귀
-                    }                                                               // if 끝
-
-                    if (sub == 2)                                                   // 파일 업로드
-                    {                                                               // if 시작
-                        handle_file_upload(sock);                                   // 업로드 핸들러 호출
-                        continue;                                                   // 서브메뉴로 복귀
-                    }                                                               // if 끝
-
-                    if (sub == 3)                                                   // 파일 다운로드
-                    {                                                               // if 시작
-                        handle_file_download(sock);                                 // 다운로드 핸들러 호출
-                        continue;                                                   // 서브메뉴로 복귀
-                    }                                                               // if 끝
+                    if (sub == 1) { handle_file_list(sock);     continue; }
+                    if (sub == 2) { handle_file_upload(sock);   continue; }
+                    if (sub == 3) { handle_file_download(sock); continue; }
+                    if (sub == 4) { handle_file_delete(sock);   continue; }                                                               // if 끝
                 }                                                                   // 파일 서브메뉴 루프 끝
 
                 continue;                                                           // 메인 메뉴로 복귀
@@ -236,6 +225,6 @@ int main()                                                                      
         }                                                                           // 로그인 후 메인 메뉴 루프 끝
     }                                                                               // 메인 루프 끝
 
-   :close(sock);                                                                  // 소켓 종료
+    ::close(sock);                                                                  // 소켓 종료
     return 0;                                                                       // 종료 코드
 }                                                                                   // main 끝

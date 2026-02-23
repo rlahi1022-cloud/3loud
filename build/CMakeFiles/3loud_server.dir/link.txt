@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/3loud_server.dir/server/skeleton_server.cpp.o CMakeFiles/3loud_server.dir/server_handle/file_handler.cpp.o CMakeFiles/3loud_server.dir/protocol/packet.c.o -o 3loud_server  /usr/lib/x86_64-linux-gnu/libmariadbcpp.so -lpthread 

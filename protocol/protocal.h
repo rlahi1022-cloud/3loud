@@ -80,6 +80,7 @@ typedef enum {
     VALUE_ERR_FILE_NOT_FOUND          = -50,
     VALUE_ERR_FILE_SIZE_LIMIT         = -51,
     VALUE_ERR_FILE_QUOTA_EXCEEDED     = -52,
+    VALUE_ERR_FILE_INPROGRESS         = -53,
 
     /* 관리자 */
     VALUE_ERR_USER_NOT_FOUND          = -60,

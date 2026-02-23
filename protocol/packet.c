@@ -1,41 +1,53 @@
-#ifndef PACKET_H                // 헤더 중복 포함 방지 매크로 시작
-#define PACKET_H                // 헤더 중복 포함 방지 매크로 정의
+#include "packet.h"
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
 
-#include <stdint.h>             // uint32_t 같은 고정 크기 정수형 사용을 위한 헤더
-
-#ifdef __cplusplus              // 만약 C++에서 이 헤더를 include 한다면
-extern "C" {                    // C 링크 방식으로 컴파일되도록 설정
-#endif
-
-// ===============================
-// packet_send
-// 역할:
-//  - length-prefix 기반으로 데이터를 전송
-//  - 먼저 4바이트 길이 전송 후 실제 데이터 전송
-// 반환:
-//  0  -> 성공
-// -1  -> 실패
-// ===============================
-int packet_send(int sock,       // 전송할 소켓 파일 디스크립터
-                const char* data, // 전송할 데이터 버퍼
-                uint32_t len);    // 전송할 데이터 길이
-
-// ===============================
-// packet_recv
-// 역할:
-//  - length-prefix 기반으로 데이터를 수신
-//  - 먼저 4바이트 길이를 읽고
-//  - 그 길이만큼 정확히 수신
-// 반환:
-//  0  -> 성공
-// -1  -> 실패
-// ===============================
-int packet_recv(int sock,       // 수신할 소켓 파일 디스크립터
-                char** out_buf, // 수신된 데이터를 동적할당하여 반환
-                uint32_t* out_len); // 수신된 데이터 길이 반환
-
-#ifdef __cplusplus              // C++ 환경에서
+static int send_all(int sock, const char* buf, uint32_t len)
+{
+    uint32_t total_sent = 0;
+    while (total_sent < len) {
+        int n = send(sock, buf + total_sent, len - total_sent, 0);
+        if (n <= 0) return -1;
+        total_sent += n;
+    }
+    return 0;
 }
-#endif
 
-#endif                        
+static int recv_all(int sock, char* buf, uint32_t len)
+{
+    uint32_t total_recv = 0;
+    while (total_recv < len) {
+        int n = recv(sock, buf + total_recv, len - total_recv, 0);
+        if (n <= 0) return -1;
+        total_recv += n;
+    }
+    return 0;
+}
+
+int packet_send(int sock, const char* data, uint32_t len)
+{
+    uint32_t net_len = htonl(len);
+    if (send_all(sock, (char*)&net_len, sizeof(net_len)) < 0) return -1;
+    if (send_all(sock, data, len) < 0) return -1;
+    return 0;
+}
+
+int packet_recv(int sock, char** out_buf, uint32_t* out_len)
+{
+    uint32_t net_len;
+    if (recv_all(sock, (char*)&net_len, sizeof(net_len)) < 0) return -1;
+
+    uint32_t len = ntohl(net_len);
+    char* buf = (char*)malloc(len + 1);
+    if (!buf) return -1;
+
+    if (recv_all(sock, buf, len) < 0) { free(buf); return -1; }
+
+    buf[len] = '\0';
+    *out_buf = buf;
+    *out_len = len;
+    return 0;
+}

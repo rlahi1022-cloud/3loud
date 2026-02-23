@@ -31,6 +31,8 @@ extern "C" {                                // C 모듈을 C 링크로 사용
 #include "packet.h"                         // length-prefix send/recv 공용 모듈
 }                                           // extern "C" 끝
 
+#include "../server_handle/file_handler.hpp" 
+
 using json = nlohmann::json;                // json 타입 별칭
 
 static constexpr int EPOLL_MAX_EVENTS = 128; // epoll 이벤트 배열 크기
@@ -49,8 +51,11 @@ enum PacketType : int {                     // 패킷 타입 enum 시작
     PKT_AUTH_LOGIN_REQ   = 0x0102,          // 로그인 요청
     PKT_MSG_SEND_REQ     = 0x0201,          // 메시지 전송 요청
     PKT_MSG_LIST_REQ     = 0x0203,          // 메시지 목록 요청
-    PKT_FILE_UPLOAD_REQ  = 0x0301,          // 파일 업로드 요청
-    PKT_FILE_DOWNLOAD_REQ= 0x0303,          // 파일 다운로드 요청
+    PKT_FILE_UPLOAD_REQ   = 0x0020,
+    PKT_FILE_CHUNK        = 0x0021,
+    PKT_FILE_DOWNLOAD_REQ = 0x0022,
+    PKT_FILE_DELETE_REQ   = 0x0023,
+    PKT_FILE_LIST_REQ     = 0x0024,          // 파일 다운로드 요청
     PKT_RESP_OK          = 0x8000,          // OK 응답(범용)
     PKT_RESP_ERR         = 0x8001           // ERR 응답(범용)
 };                                          // enum 끝
@@ -65,6 +70,7 @@ struct Session {                            // 세션 구조체 시작
     std::string peer_ip;                    // 클라이언트 IP 문자열
     uint16_t peer_port = 0;                 // 클라이언트 포트
     std::string write_buf;                  // 전송 대기 버퍼
+    std::string read_buf;
 };                                          // 세션 구조체 끝
 
 // ============================================================================ // 구분 주석
@@ -217,6 +223,26 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                     break;                                                           // break
                 case PKT_MSG_SEND_REQ:                                               // 메시지 전송
                     out_payload = handle_msg_send(req, *conn);                       // 핸들 호출
+                    break;
+                case PKT_FILE_UPLOAD_REQ:
+                    out_payload = handle_file_upload_req(req, *conn);
+                    break;
+
+                case PKT_FILE_CHUNK:
+                    out_payload = handle_file_chunk(req, *conn);
+                    break;
+
+                case PKT_FILE_DOWNLOAD_REQ:
+                    // 다운로드는 내부에서 sock에 직접 청크를 전송하므로 sock 전달 필요
+                    out_payload = handle_file_download_req(task.sock, req, *conn);
+                    break;
+
+                case PKT_FILE_DELETE_REQ:
+                    out_payload = handle_file_delete_req(req, *conn);
+                    break;
+
+                case PKT_FILE_LIST_REQ:
+                    out_payload = handle_file_list_req(req, *conn);
                     break;                                                           // break
                 default: {                                                           // 알 수 없는 타입
                     out_payload = make_resp(PKT_RESP_ERR, -1, "Unknown type", json::object()); // 에러
@@ -239,13 +265,14 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
 // ============================================================================ // 구분 주석
 
 int main(int argc, char** argv) {                                                     // main 시작
+    file_handler_init(std::string(getenv("HOME")) + "/3loud_files");
     signal(SIGPIPE, SIG_IGN);                                                         // SIGPIPE 무시(끊긴 소켓 send 방지)
     int port = DEFAULT_PORT;                                                          // 포트 기본값
     if (argc >= 2) {                                                                  // 인자 있으면
         port = std::stoi(argv[1]);                                                    // 포트 파싱
     }                                                                                 // if 끝
 
-    std::string db_url = "jdbc:mariadb://localhost:3306/3loud";                       // DB URL 예시
+    std::string db_url = "jdbc:mariadb://10.10.20.108/3loud";                       // DB URL 예시
     std::string db_user = "gm_3loud";                                                 // DB 유저 예시
     std::string db_pw = "1234";                                                       // DB 비번 예시
 
