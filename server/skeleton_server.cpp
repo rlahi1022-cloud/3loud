@@ -97,6 +97,7 @@ static std::mutex g_req_m;                  // 요청 큐 mutex
 static std::mutex g_res_m;                  // 응답 큐 mutex
 static std::condition_variable g_req_cv;    // worker를 깨우는 CV
 static std::atomic<bool> g_running(true);   // 서버 실행 플래그(원자)
+static int g_wake_fd = -1;                  // worker→epoll 신호용 eventfd (전역)
 
 // ============================================================================ // 구분 주석
 // 유틸: non-blocking 설정
@@ -257,6 +258,10 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             std::lock_guard<std::mutex> lk(g_res_m);                                 // 응답 큐 lock
             g_res_q.push(ResponseTask{task.sock, out_payload});                       // 응답 작업 push
         }                                                                            // lock 블록 끝
+
+        // epoll 스레드에 응답이 준비됐음을 알림 (없으면 epoll이 응답 큐를 영원히 모름)
+        uint64_t val = 1;
+        write(g_wake_fd, &val, sizeof(val));                                         // wake_fd 신호
     }                                                                                // while 끝
 }                                                                                    // worker_loop 끝
 
@@ -316,8 +321,8 @@ int main(int argc, char** argv) {                                               
         return 1;                                                                     // 종료
     }                                                                                 // if 끝
 
-    int wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);                             // worker->epoll 깨우기용 eventfd
-    if (wake_fd < 0) {                                                                // 실패 검사
+    g_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);                               // worker->epoll 깨우기용 eventfd
+    if (g_wake_fd < 0) {                                                                // 실패 검사
         std::cerr << "eventfd failed: " << strerror(errno) << "\n";                   // 로그
         safe_close(epfd);                                                             // close
         safe_close(listen_fd);                                                        // close
@@ -333,8 +338,8 @@ int main(int argc, char** argv) {                                               
     epoll_event wkev;                                                                 // wake 이벤트
     memset(&wkev, 0, sizeof(wkev));                                                   // 0 초기화
     wkev.events = EPOLLIN;                                                            // 읽기 이벤트
-    wkev.data.fd = wake_fd;                                                           // wake fd 등록
-    epoll_ctl(epfd, EPOLL_CTL_ADD, wake_fd, &wkev);                                   // epoll에 추가
+    wkev.data.fd = g_wake_fd;                                                           // wake fd 등록
+    epoll_ctl(epfd, EPOLL_CTL_ADD, g_wake_fd, &wkev);                                   // epoll에 추가
 
     std::unordered_map<int, Session> sessions;                                        // 세션 맵
 
@@ -355,9 +360,9 @@ int main(int argc, char** argv) {                                               
         for (int i = 0; i < n; ++i) {                                                 // 이벤트 순회
             int fd = events[i].data.fd;                                               // 이벤트 fd
 
-            if (fd == wake_fd) {                                                      // wake 이벤트면
+            if (fd == g_wake_fd) {                                                      // wake 이벤트면
                 uint64_t u = 0;                                                       // 읽을 값
-                read(wake_fd, &u, sizeof(u));                                         // eventfd 비우기
+                read(g_wake_fd, &u, sizeof(u));                                         // eventfd 비우기
 
                 std::queue<ResponseTask> local;                                       // 로컬 큐
                 {                                                                     // lock 블록
@@ -540,7 +545,7 @@ int main(int argc, char** argv) {                                               
         safe_close(kv.second.sock);                                                   // close
     }                                                                                 // for 끝
 
-    safe_close(wake_fd);                                                              // wake close
+    safe_close(g_wake_fd);                                                              // wake close
     safe_close(epfd);                                                                 // epoll close
     safe_close(listen_fd);                                                            // listen close
 

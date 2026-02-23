@@ -863,6 +863,7 @@ CMakeFiles/3loud_client.dir/client_handle/client_handlers_stub.cpp.o: /home/lms/
   /usr/include/c++/13/cerrno \
   /usr/include/c++/13/clocale \
   /usr/include/c++/13/cstddef \
+  /usr/include/c++/13/cstdint \
   /usr/include/c++/13/cstdio \
   /usr/include/c++/13/cstdlib \
   /usr/include/c++/13/cwchar \
@@ -901,6 +902,7 @@ CMakeFiles/3loud_client.dir/client_handle/client_handlers_stub.cpp.o: /home/lms/
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
+  /usr/include/stdint.h \
   /usr/include/stdio.h \
   /usr/include/stdlib.h \
   /usr/include/time.h \
@@ -927,6 +929,8 @@ CMakeFiles/3loud_client.dir/client_handle/client_handlers_stub.cpp.o: /home/lms/
   /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/x86_64-linux-gnu/bits/setjmp.h \
   /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
+  /usr/include/x86_64-linux-gnu/bits/stdint-least.h \
+  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
   /usr/include/x86_64-linux-gnu/bits/stdio.h \
   /usr/include/x86_64-linux-gnu/bits/stdio2-decl.h \
   /usr/include/x86_64-linux-gnu/bits/stdio2.h \
@@ -994,7 +998,8 @@ CMakeFiles/3loud_client.dir/client_handle/client_handlers_stub.cpp.o: /home/lms/
   /usr/include/x86_64-linux-gnu/sys/types.h \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/stdbool.h \
-  /usr/lib/gcc/x86_64-linux-gnu/13/include/stddef.h
+  /usr/lib/gcc/x86_64-linux-gnu/13/include/stddef.h \
+  /usr/lib/gcc/x86_64-linux-gnu/13/include/stdint.h
 
 CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화면/3loud12/client_handle/file_client.cpp \
   /home/lms/바탕화면/3loud12/client/client_net.hpp \
@@ -1002,8 +1007,12 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /home/lms/바탕화면/3loud12/protocol/protocal.h \
   /home/lms/바탕화면/3loud12/client_handle/file_client.hpp \
   /usr/include/alloca.h \
+  /usr/include/asm-generic/bitsperlong.h \
   /usr/include/asm-generic/errno-base.h \
   /usr/include/asm-generic/errno.h \
+  /usr/include/asm-generic/int-ll64.h \
+  /usr/include/asm-generic/posix_types.h \
+  /usr/include/asm-generic/types.h \
   /usr/include/assert.h \
   /usr/include/c++/13/algorithm \
   /usr/include/c++/13/any \
@@ -1201,12 +1210,18 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/c++/13/vector \
   /usr/include/c++/13/version \
   /usr/include/ctype.h \
+  /usr/include/dirent.h \
   /usr/include/endian.h \
   /usr/include/errno.h \
   /usr/include/features-time64.h \
   /usr/include/features.h \
   /usr/include/libintl.h \
   /usr/include/linux/errno.h \
+  /usr/include/linux/limits.h \
+  /usr/include/linux/posix_types.h \
+  /usr/include/linux/stat.h \
+  /usr/include/linux/stddef.h \
+  /usr/include/linux/types.h \
   /usr/include/locale.h \
   /usr/include/math.h \
   /usr/include/nlohmann/adl_serializer.hpp \
@@ -1265,10 +1280,16 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/time.h \
   /usr/include/wchar.h \
   /usr/include/wctype.h \
+  /usr/include/x86_64-linux-gnu/asm/bitsperlong.h \
   /usr/include/x86_64-linux-gnu/asm/errno.h \
+  /usr/include/x86_64-linux-gnu/asm/posix_types.h \
+  /usr/include/x86_64-linux-gnu/asm/posix_types_64.h \
+  /usr/include/x86_64-linux-gnu/asm/types.h \
   /usr/include/x86_64-linux-gnu/bits/atomic_wide_counter.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/cpu-set.h \
+  /usr/include/x86_64-linux-gnu/bits/dirent.h \
+  /usr/include/x86_64-linux-gnu/bits/dirent_ext.h \
   /usr/include/x86_64-linux-gnu/bits/endian.h \
   /usr/include/x86_64-linux-gnu/bits/endianness.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -1280,12 +1301,14 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/x86_64-linux-gnu/bits/iscanonical.h \
   /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
   /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h \
+  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
   /usr/include/x86_64-linux-gnu/bits/locale.h \
   /usr/include/x86_64-linux-gnu/bits/long-double.h \
   /usr/include/x86_64-linux-gnu/bits/math-vector.h \
   /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h \
   /usr/include/x86_64-linux-gnu/bits/mathcalls-narrow.h \
   /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
+  /usr/include/x86_64-linux-gnu/bits/posix1_lim.h \
   /usr/include/x86_64-linux-gnu/bits/pthread_stack_min-dynamic.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes-arch.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
@@ -1294,6 +1317,9 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/x86_64-linux-gnu/bits/setjmp.h \
+  /usr/include/x86_64-linux-gnu/bits/stat.h \
+  /usr/include/x86_64-linux-gnu/bits/statx-generic.h \
+  /usr/include/x86_64-linux-gnu/bits/statx.h \
   /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
   /usr/include/x86_64-linux-gnu/bits/stdint-least.h \
   /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
@@ -1308,6 +1334,7 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/x86_64-linux-gnu/bits/strings_fortified.h \
   /usr/include/x86_64-linux-gnu/bits/struct_mutex.h \
   /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h \
+  /usr/include/x86_64-linux-gnu/bits/struct_stat.h \
   /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h \
   /usr/include/x86_64-linux-gnu/bits/time.h \
   /usr/include/x86_64-linux-gnu/bits/time64.h \
@@ -1332,6 +1359,8 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_itimerspec.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_sched_param.h \
+  /usr/include/x86_64-linux-gnu/bits/types/struct_statx.h \
+  /usr/include/x86_64-linux-gnu/bits/types/struct_statx_timestamp.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_timespec.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_timeval.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_tm.h \
@@ -1367,6 +1396,7 @@ CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o: /home/lms/바탕화
   /usr/include/x86_64-linux-gnu/sys/cdefs.h \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/sys/single_threaded.h \
+  /usr/include/x86_64-linux-gnu/sys/stat.h \
   /usr/include/x86_64-linux-gnu/sys/types.h \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h \
   /usr/lib/gcc/x86_64-linux-gnu/13/include/stddef.h \
@@ -1465,11 +1495,33 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
   /usr/lib/gcc/x86_64-linux-gnu/13/include/stdint.h
 
 
+/usr/include/x86_64-linux-gnu/sys/stat.h:
+
 /usr/include/x86_64-linux-gnu/c++/13/bits/basic_file.h:
+
+/usr/include/x86_64-linux-gnu/bits/types/struct_statx_timestamp.h:
+
+/usr/include/x86_64-linux-gnu/bits/struct_stat.h:
+
+/usr/include/x86_64-linux-gnu/bits/statx-generic.h:
+
+/usr/include/x86_64-linux-gnu/bits/stat.h:
+
+/usr/include/x86_64-linux-gnu/bits/local_lim.h:
+
+/usr/include/x86_64-linux-gnu/bits/dirent_ext.h:
+
+/usr/include/x86_64-linux-gnu/bits/dirent.h:
+
+/usr/include/x86_64-linux-gnu/asm/types.h:
+
+/usr/include/dirent.h:
 
 /usr/include/c++/13/thread:
 
 /usr/include/c++/13/bits/this_thread_sleep.h:
+
+/usr/include/asm-generic/int-ll64.h:
 
 /home/lms/바탕화면/3loud12/protocol/protocal.h:
 
@@ -1623,6 +1675,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 
 /usr/include/x86_64-linux-gnu/asm/bitsperlong.h:
 
+/usr/include/x86_64-linux-gnu/bits/statx.h:
+
 /usr/include/unistd.h:
 
 /usr/include/x86_64-linux-gnu/bits/setjmp.h:
@@ -1733,6 +1787,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 
 /usr/include/c++/13/cwctype:
 
+/usr/include/linux/limits.h:
+
 /usr/include/c++/13/ratio:
 
 /usr/include/c++/13/bits/shared_ptr.h:
@@ -1740,6 +1796,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
 /usr/include/c++/13/bits/string_view.tcc:
+
+/usr/include/linux/stat.h:
 
 /usr/include/c++/13/bits/locale_facets.tcc:
 
@@ -1832,6 +1890,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 /usr/include/wchar.h:
 
 /usr/include/c++/13/bits/shared_ptr_base.h:
+
+/usr/include/asm-generic/types.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h:
 
@@ -2157,6 +2217,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 
 /usr/include/c++/13/pstl/glue_memory_defs.h:
 
+/usr/include/x86_64-linux-gnu/bits/posix1_lim.h:
+
 /usr/include/c++/13/pstl/glue_numeric_defs.h:
 
 /usr/include/c++/13/bits/mask_array.h:
@@ -2223,6 +2285,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 
 /usr/include/features.h:
 
+/usr/include/x86_64-linux-gnu/bits/types/struct_statx.h:
+
 /usr/include/nlohmann/detail/iterators/json_reverse_iterator.hpp:
 
 /usr/include/linux/close_range.h:
@@ -2284,6 +2348,8 @@ CMakeFiles/3loud_client.dir/protocol/packet.c.o: /home/lms/바탕화면/3loud12/
 /usr/include/nlohmann/detail/output/binary_writer.hpp:
 
 /usr/include/nlohmann/detail/output/serializer.hpp:
+
+/usr/include/linux/types.h:
 
 /usr/include/nlohmann/detail/value_t.hpp:
 

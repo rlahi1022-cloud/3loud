@@ -27,7 +27,13 @@
 #include <cstring>
 #include <cstdlib>
 #include <vector>
+#include <algorithm>
 #include <nlohmann/json.hpp>
+
+// 파일 탐색기용 C API (참조코드와 동일)
+#include <dirent.h>
+#include <sys/stat.h>
+#include <cstdio>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -230,19 +236,195 @@ static void upload_thread(int sock, const std::string& abs_path,
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  내부 유틸: 로컬 파일/폴더 탐색기
+//  참조: 파일참조_코드.c (list_directory 구조 동일하게 C++ 재현)
+//
+//  mode:
+//    BROWSE_FILE   → 파일을 선택할 때까지 탐색, 선택한 파일 절대경로 반환
+//    BROWSE_DIR    → 폴더를 확정할 때까지 탐색, 확정한 폴더 절대경로 반환
+//
+//  반환: 선택/확정한 경로 문자열, 취소 시 빈 문자열
+// ─────────────────────────────────────────────────────────────────
+enum BrowseMode { BROWSE_FILE, BROWSE_DIR };
+
+struct FileEntry {
+    std::string name;
+    bool        is_dir;
+    int64_t     size;
+};
+
+// 한 디렉토리의 항목을 읽어서 목록 출력 후 entries에 채움
+// 반환값: 항목 수 (-1 이면 열기 실패)
+static int list_local_dir(const std::string& path,
+                           std::vector<FileEntry>& entries,
+                           BrowseMode mode)
+{
+    entries.clear();
+
+    // opendir / readdir / stat : 참조코드와 동일한 C API 사용
+    DIR* dir = opendir(path.c_str());
+    if (!dir) {
+        std::cout << "  [오류] 폴더를 열 수 없습니다: " << path << "\n";
+        return -1;
+    }
+
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        // '.' '..' 제외 (0번: 상위폴더 이동으로 별도 처리)
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
+        std::string full = path + "/" + std::string(ent->d_name);
+        struct stat st{};
+        stat(full.c_str(), &st);
+
+        FileEntry fe;
+        fe.name   = ent->d_name;
+        fe.is_dir = S_ISDIR(st.st_mode);
+        fe.size   = st.st_size;
+        entries.push_back(fe);
+
+        if (entries.size() >= 100) break; // 최대 100개 (참조코드 동일)
+    }
+    closedir(dir);
+
+    // 정렬: 폴더 먼저, 이름 오름차순
+    std::sort(entries.begin(), entries.end(),
+        [](const FileEntry& a, const FileEntry& b) {
+            if (a.is_dir != b.is_dir) return a.is_dir > b.is_dir;
+            return a.name < b.name;
+        });
+
+    // 화면 출력
+    printf("\033[H\033[J"); // 화면 지우기 (참조코드 clear_screen 동일)
+    std::cout << "\n--- 현재 위치: " << path << " ---\n";
+
+    if (mode == BROWSE_DIR) {
+        std::cout << "  [0] 현재 폴더로 저장 확정\n";
+        std::cout << "  [-1] 상위 폴더로 이동\n";
+        std::cout << "  [-2] 취소 (기본 폴더에 저장)\n";
+    } else {
+        std::cout << "  [0] 상위 폴더로 이동\n";
+        std::cout << "  [-1] 취소\n";
+    }
+    std::cout << "-------------------------------------------\n";
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& fe = entries[i];
+        std::cout << "  " << (i + 1) << ". "
+                  << (fe.is_dir ? "[폴더] " : "[파일] ")
+                  << fe.name;
+        if (!fe.is_dir)
+            std::cout << "  (" << human_size(fe.size) << ")";
+        std::cout << "\n";
+    }
+    std::cout << "-------------------------------------------\n";
+    return (int)entries.size();
+}
+
+// 탐색기 메인 루프 (참조코드 main() while 루프를 함수로)
+static std::string browse_local(const std::string& start_path, BrowseMode mode)
+{
+    // 경로를 절대경로로 정규화
+    char resolved[4096]{};
+    if (!realpath(start_path.c_str(), resolved)) {
+        strncpy(resolved, start_path.c_str(), sizeof(resolved) - 1);
+    }
+    std::string cur = resolved;
+
+    std::vector<FileEntry> entries;
+
+    while (true) {
+        int cnt = list_local_dir(cur, entries, mode);
+        if (cnt < 0) return ""; // 폴더 열기 실패
+
+        std::cout << "번호 선택: ";
+        int choice;
+        if (!(std::cin >> choice)) {
+            std::cin.clear();
+            std::cin.ignore(4096, '\n');
+            continue;
+        }
+        std::cin.ignore(4096, '\n');
+
+        // ── BROWSE_DIR 모드 ──────────────────────────────────────
+        if (mode == BROWSE_DIR) {
+            if (choice == 0) {
+                // 현재 폴더 확정
+                return cur;
+            }
+            if (choice == -1) {
+                // 상위 폴더로 이동
+                size_t sl = cur.rfind('/');
+                if (sl != std::string::npos && sl != 0)
+                    cur = cur.substr(0, sl);
+                else
+                    cur = "/";
+                continue;
+            }
+            if (choice == -2) {
+                // 취소
+                return "";
+            }
+            if (choice >= 1 && choice <= cnt) {
+                const FileEntry& sel = entries[choice - 1];
+                if (sel.is_dir) {
+                    cur = cur + "/" + sel.name;
+                } else {
+                    std::cout << "  [안내] 폴더만 선택할 수 있습니다.\n";
+                    std::cout << "  계속하려면 Enter...";
+                    std::cin.get();
+                }
+            }
+            continue;
+        }
+
+        // ── BROWSE_FILE 모드 ─────────────────────────────────────
+        if (choice == -1) {
+            return ""; // 취소
+        }
+        if (choice == 0) {
+            // 상위 폴더로 이동 (참조코드 동일 로직)
+            size_t sl = cur.rfind('/');
+            if (sl != std::string::npos && sl != 0)
+                cur = cur.substr(0, sl);
+            else if (sl == 0)
+                cur = "/"; // 최상위 루트
+            continue;
+        }
+        if (choice >= 1 && choice <= cnt) {
+            const FileEntry& sel = entries[choice - 1];
+            if (sel.is_dir) {
+                // 폴더 진입
+                cur = cur + "/" + sel.name;
+            } else {
+                // 파일 선택 확인 (참조코드 12-1-4 동일)
+                std::string full = cur + "/" + sel.name;
+                std::cout << "\n선택한 파일: " << sel.name
+                          << "  (" << human_size(sel.size) << ")\n";
+                std::cout << "이 파일을 서버에 저장하시겠습니까? (y/n): ";
+                char yn;
+                std::cin >> yn;
+                std::cin.ignore(4096, '\n');
+                if (yn == 'y' || yn == 'Y')
+                    return full; // 확정
+                // 아니오 → 다시 목록으로
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  handle_file_list  (0x0024)
 // ─────────────────────────────────────────────────────────────────
 void handle_file_list(int sock)
 {
     init_dirs();
 
-    std::cout << "폴더 필터 (없으면 Enter): ";
-    std::string folder;
-    std::getline(std::cin, folder);
-
+    // 전체 목록 요청 (폴더 필터 없음)
     json req = make_request(PKT_FILE_LIST_REQ);
     req["user_no"]            = g_user_no;
-    req["payload"]["folder"]  = folder;
+    req["payload"]["folder"]  = "";
 
     if (!send_json(sock, req)) {
         std::cout << "[오류] 목록 요청 전송 실패\n";
@@ -257,6 +439,8 @@ void handle_file_list(int sock)
 
     if (resp.value("code", -1) != VALUE_SUCCESS) {
         std::cout << "[오류] " << resp.value("msg", "목록 조회 실패") << "\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
         return;
     }
 
@@ -306,54 +490,42 @@ void handle_file_upload(int sock)
         return;
     }
 
-    system("clear");
-    std::cout << "==========================================\n";
-    std::cout << "  파일 업로드\n";
-    std::cout << "  기본 폴더: " << g_upload_dir << "\n";
-    std::cout << "------------------------------------------\n";
-
-    // 기본 폴더 파일 목록 출력 (12-1-2)
-    try {
-        int n = 1;
-        for (auto& e : fs::directory_iterator(g_upload_dir)) {
-            if (e.is_regular_file())
-                std::cout << "  [" << n++ << "] "
-                          << e.path().filename().string()
-                          << "  " << human_size((int64_t)e.file_size()) << "\n";
-        }
-    } catch (...) {
-        std::cout << "  (기본 폴더를 읽을 수 없음)\n";
-    }
-
-    std::cout << "------------------------------------------\n";
-    std::cout << "파일명 또는 절대경로 입력: ";
-    std::string input;
-    std::getline(std::cin, input);
-    if (input.empty()) return;
-
-    // 경로 결정: 절대경로이면 그대로, 아니면 기본 폴더 기준 (12-1-3)
-    fs::path fpath = (input[0] == '/') ? fs::path(input)
-                                       : fs::path(g_upload_dir) / input;
-
-    // 파일 존재 확인 (12-1-4)
-    if (!fs::exists(fpath) || !fs::is_regular_file(fpath)) {
-        std::cout << "[오류] 그런 파일 없습니다: " << fpath.string() << "\n";
+    if (g_user_no == 0) {
+        std::cout << "[오류] 로그인이 필요합니다.\n";
         std::cout << "계속하려면 Enter...";
         std::cin.get();
         return;
     }
 
-    int64_t fsize = (int64_t)fs::file_size(fpath);
-    std::cout << "\n파일명: " << fpath.filename().string()
-              << "  크기: " << human_size(fsize) << "\n";
-    std::cout << "서버에 저장하시겠습니까? (y/n): ";
+    // ── 파일 탐색기로 업로드할 파일 선택 ──
+    std::string selected = browse_local(g_upload_dir, BROWSE_FILE);
+    if (selected.empty()) {
+        printf("\033[H\033[J");
+        std::cout << "취소되었습니다.\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
 
-    char yn;
-    std::cin >> yn;
-    std::cin.ignore();
-    if (yn != 'y' && yn != 'Y') { std::cout << "취소\n"; return; }
+    // 파일 크기 확인
+    fs::path fpath(selected);
+    int64_t fsize = 0;
+    try { fsize = (int64_t)fs::file_size(fpath); }
+    catch (...) {
+        printf("\033[H\033[J");
+        std::cout << "[오류] 파일 크기를 읽을 수 없습니다.\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
 
-    std::cout << "저장할 클라우드 폴더 (없으면 Enter=루트): ";
+    // 클라우드 저장 폴더 입력
+    printf("\033[H\033[J");   // ← clear 추가
+    std::cout << "==========================================\n";
+    std::cout << "  선택된 파일: " << fpath.filename().string() << "\n";
+    std::cout << "  크기: " << human_size(fsize) << "\n";
+    std::cout << "------------------------------------------\n";
+    std::cout << "클라우드에 저장할 폴더명 (없으면 Enter=루트): ";
     std::string folder;
     std::getline(std::cin, folder);
 
@@ -377,7 +549,6 @@ void handle_file_download(int sock)
 {
     init_dirs();
 
-    // 이미 전송 중이면 거부 (12-1-6)
     if (g_file_transfer_in_progress.load()) {
         std::cout << "[파일 수신 중] 전송이 완료된 후에 다시 시도하세요.\n";
         std::cout << "계속하려면 Enter...";
@@ -385,18 +556,76 @@ void handle_file_download(int sock)
         return;
     }
 
-    // 목록 먼저 출력
-    handle_file_list(sock);
+    if (g_user_no == 0) {
+        std::cout << "[오류] 로그인이 필요합니다.\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
 
-    std::cout << "다운로드할 file_id 입력: ";
-    int64_t file_id = 0;
-    std::cin >> file_id;
+    // ── 목록 조회 ──────────────────────────────────────────────────
+    json list_req = make_request(PKT_FILE_LIST_REQ);
+    list_req["user_no"]           = g_user_no;
+    list_req["payload"]["folder"] = "";
+
+    if (!send_json(sock, list_req)) {
+        std::cout << "[오류] 목록 요청 실패\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    json list_resp;
+    if (!recv_json(sock, list_resp) || list_resp.value("code", -1) != VALUE_SUCCESS) {
+        std::cout << "[오류] 목록 조회 실패\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    json files = list_resp["payload"].value("files", json::array());
+    int64_t used  = list_resp["payload"].value("storage_used",  (int64_t)0);
+    int64_t total = list_resp["payload"].value("storage_total", (int64_t)0);
+
+    // ── 목록 출력 후 번호로 선택 ───────────────────────────────────
+    printf("\033[H\033[J");
+    std::cout << "==========================================\n";
+    std::cout << "  클라우드 파일 목록 (불러오기)\n";
+    std::cout << "  사용: " << human_size(used) << " / 전체: " << human_size(total) << "\n";
+    std::cout << "------------------------------------------\n";
+
+    if (files.empty()) {
+        std::cout << "  (파일 없음)\n";
+        std::cout << "==========================================\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    int idx = 1;
+    for (auto& f : files) {
+        std::cout << "  [" << idx++ << "] "
+                  << f.value("file_name", "") << "  "
+                  << human_size(f.value("file_size", (int64_t)0)) << "  "
+                  << f.value("created_at", "");
+        std::string fol = f.value("folder", "");
+        if (!fol.empty()) std::cout << "  /" << fol;
+        std::cout << "\n";
+    }
+    std::cout << "==========================================\n";
+    std::cout << "번호 선택 (0=취소): ";
+
+    int choice = 0;
+    std::cin >> choice;
     std::cin.ignore();
-    if (file_id <= 0) return;
+    if (choice <= 0 || choice > (int)files.size()) return;
+
+    int64_t file_id   = files[choice - 1].value("file_id",   (int64_t)0);
+    std::string fname = files[choice - 1].value("file_name", "file");
 
     g_file_transfer_in_progress = true;
 
-    // ── 0x0022 다운로드 요청 ─────────────────────────────────────
+    // ── 0x0022 다운로드 요청 ──────────────────────────────────────
     json req = make_request(PKT_FILE_DOWNLOAD_REQ);
     req["user_no"]            = g_user_no;
     req["payload"]["file_id"] = file_id;
@@ -407,7 +636,6 @@ void handle_file_download(int sock)
         return;
     }
 
-    // META 응답 수신
     json resp;
     if (!recv_json(sock, resp)) {
         std::cout << "[오류] 서버 응답 수신 실패\n";
@@ -421,15 +649,24 @@ void handle_file_download(int sock)
         return;
     }
 
-    json& mp          = resp["payload"];
-    std::string fname = mp.value("file_name",    "file");
-    int64_t fsize     = mp.value("file_size",    (int64_t)0);
-    int64_t total     = mp.value("total_chunks", (int64_t)1);
+    json& mp      = resp["payload"];
+    int64_t fsize = mp.value("file_size",    (int64_t)0);
+    int64_t tc    = mp.value("total_chunks", (int64_t)1);
 
-    // 다운로드 저장 경로 (13-3-3)
-    std::string save_path = g_download_dir + "/" + fname;
-    std::cout << "\n[파일 수신 중] " << fname
-              << " (" << human_size(fsize) << ")\n";
+    // ── 저장 위치 탐색기로 선택 (13-3-3) ─────────────────────────
+    std::cout << "\n저장할 폴더를 선택하세요. (Enter로 탐색기 시작)\n";
+    std::cin.get();
+
+    std::string save_dir = browse_local(g_download_dir, BROWSE_DIR);
+    if (save_dir.empty()) {
+        save_dir = g_download_dir;
+        printf("\033[H\033[J");
+        std::cout << "[안내] 기본 폴더에 저장합니다: " << save_dir << "\n";
+    }
+
+    std::string save_path = save_dir + "/" + fname;
+    printf("\033[H\033[J");
+    std::cout << "[파일 수신 중] " << fname << "  (" << human_size(fsize) << ")\n";
     std::cout << "저장 위치: " << save_path << "\n";
 
     // ── 청크 수신 루프 ────────────────────────────────────────────
@@ -441,60 +678,108 @@ void handle_file_download(int sock)
     }
 
     bool success = true;
-    for (int64_t idx = 0; idx < total; ++idx) {
+    for (int64_t i = 0; i < tc; ++i) {
         json chunk;
         if (!recv_json(sock, chunk)) {
             std::cout << "\n[오류] 청크 수신 실패\n";
             success = false;
             break;
         }
-
-        // 마지막으로 DONE 패킷이 먼저 올 경우 처리
         int type = chunk.value("type", 0);
         if (type == PKT_FILE_DOWNLOAD_REQ && chunk.value("msg","") == "다운로드 완료") break;
 
-        json& cp    = chunk["payload"];
-        std::string b64 = cp.value("data_b64", "");
-        auto data   = b64_decode(b64);
+        std::string b64 = chunk["payload"].value("data_b64", "");
+        auto data = b64_decode(b64);
         ofs.write(reinterpret_cast<const char*>(data.data()),
                   static_cast<std::streamsize>(data.size()));
 
-        int pct = (int)(((idx + 1) * 100) / total);
-        std::cout << "\r[파일 수신 중] " << pct << "% ("
-                  << idx+1 << "/" << total << ")   " << std::flush;
+        int pct = (int)(((i + 1) * 100) / tc);
+        std::cout << "\r[파일 수신 중] " << pct << "% (" << i+1 << "/" << tc << ")   " << std::flush;
     }
     ofs.close();
 
     if (success) {
-        // DONE 응답 수신 (서버가 마지막으로 전송)
         json done;
         recv_json(sock, done);
-        std::cout << "\n[파일 수신 완료] " << fname << "\n"; // 12-2-2
+        printf("\033[H\033[J");
+        std::cout << "[파일 수신 완료] " << fname << "\n";
+        std::cout << "저장 위치: " << save_path << "\n";
     } else {
         fs::remove(save_path);
-        std::cout << "[파일 수신 실패] 불완전 파일 삭제됨\n";
+        std::cout << "\n[파일 수신 실패] 불완전 파일 삭제됨\n";
     }
 
     g_file_transfer_in_progress = false;
     std::cout << "계속하려면 Enter...";
     std::cin.get();
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  handle_file_delete  (0x0023)
-// ─────────────────────────────────────────────────────────────────
 void handle_file_delete(int sock)
 {
-    // 목록 먼저 출력
-    handle_file_list(sock);
+    if (g_user_no == 0) {
+        std::cout << "[오류] 로그인이 필요합니다.\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
 
-    std::cout << "삭제할 file_id 입력: ";
-    int64_t file_id = 0;
-    std::cin >> file_id;
+    // ── 목록 조회 ──────────────────────────────────────────────────
+    json list_req = make_request(PKT_FILE_LIST_REQ);
+    list_req["user_no"]           = g_user_no;
+    list_req["payload"]["folder"] = "";
+
+    if (!send_json(sock, list_req)) {
+        std::cout << "[오류] 목록 요청 실패\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    json list_resp;
+    if (!recv_json(sock, list_resp) || list_resp.value("code", -1) != VALUE_SUCCESS) {
+        std::cout << "[오류] 목록 조회 실패\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    json files = list_resp["payload"].value("files", json::array());
+
+    // ── 목록 출력 후 번호로 선택 ───────────────────────────────────
+    printf("\033[H\033[J");
+    std::cout << "==========================================\n";
+    std::cout << "  클라우드 파일 목록 (삭제)\n";
+    std::cout << "------------------------------------------\n";
+
+    if (files.empty()) {
+        std::cout << "  (파일 없음)\n";
+        std::cout << "==========================================\n";
+        std::cout << "계속하려면 Enter...";
+        std::cin.get();
+        return;
+    }
+
+    int idx = 1;
+    for (auto& f : files) {
+        std::cout << "  [" << idx++ << "] "
+                  << f.value("file_name", "") << "  "
+                  << human_size(f.value("file_size", (int64_t)0)) << "  "
+                  << f.value("created_at", "");
+        std::string fol = f.value("folder", "");
+        if (!fol.empty()) std::cout << "  /" << fol;
+        std::cout << "\n";
+    }
+    std::cout << "==========================================\n";
+    std::cout << "번호 선택 (0=취소): ";
+
+    int choice = 0;
+    std::cin >> choice;
     std::cin.ignore();
-    if (file_id <= 0) return;
+    if (choice <= 0 || choice > (int)files.size()) return;
 
-    std::cout << "정말 삭제하시겠습니까? (y/n): ";
+    int64_t   file_id  = files[choice - 1].value("file_id",   (int64_t)0);
+    std::string fname  = files[choice - 1].value("file_name", "");
+
+    std::cout << "\n'" << fname << "' 을(를) 정말 삭제하시겠습니까? (y/n): ";
     char yn;
     std::cin >> yn;
     std::cin.ignore();
@@ -515,11 +800,13 @@ void handle_file_delete(int sock)
         return;
     }
 
+    printf("\033[H\033[J");
     if (resp.value("code", -1) == VALUE_SUCCESS)
-        std::cout << "[파일 삭제 완료]\n";
+        std::cout << "[파일 삭제 완료] " << fname << "\n";
     else
         std::cout << "[오류] " << resp.value("msg", "삭제 실패") << "\n";
 
     std::cout << "계속하려면 Enter...";
     std::cin.get();
 }
+
