@@ -29,6 +29,7 @@
 #include "json_packet.hpp"                  // JSON 패킷 템플릿
 #include "./protocol/protocal.h"
 #include "./protocol/protocol_schema.h"
+#include "server_message_handler.hpp"       // 핸들러 함수 선언
 
 extern "C" {                                // C 모듈을 C 링크로 사용
 #include "packet.h"                         // length-prefix send/recv 공용 모듈

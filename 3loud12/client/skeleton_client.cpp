@@ -15,7 +15,7 @@
 #include "client_handlers.h"
 #include "../client_handle/file_client.hpp"                                         // 팀원들이 구현할 핸들러 선언
 #include "../client_handle/tui.hpp"                                                 // 방향키 TUI
-
+#include "../client_handle/message_client_handle.hpp"                                  // 메시지 메뉴 핸들러
 using json = nlohmann::json;                                                        // json 별칭
 
 static const char* SERVER_IP   = "127.0.0.1";                                       // 서버 IP(테스트용)

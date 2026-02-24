@@ -12,6 +12,7 @@
 #include "./protocol/json_packet.hpp"                                                   
 #include "./protocol/protocal.h"
 #include "./protocol/protocol_schema.h"
+#include "message_client_handle.hpp"
 
 extern "C" {                                // C 모듈을 C 링크로 사용
 #include "./protocol/packet.h"           // length-prefix send/recv 공용 모듈
