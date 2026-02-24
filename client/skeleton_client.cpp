@@ -13,7 +13,8 @@
 #include "packet.h"                                                                 // C 공용 length-prefix 송수신 모듈
 #include "json_packet.hpp"                                                          // JSON 기본 템플릿(기본값/공통필드)
 #include "client_handlers.h"
-#include "../client_handle/file_client.hpp"                                                       // 팀원들이 구현할 핸들러 선언
+#include "../client_handle/file_client.hpp"                                         // 팀원들이 구현할 핸들러 선언
+#include "../client_handle/tui.hpp"                                                 // 방향키 TUI
 
 using json = nlohmann::json;                                                        // json 별칭
 
@@ -174,36 +175,19 @@ int main()                                                                      
                 bool back = false;                                                  // 뒤로가기 플래그
                 while (!back && running && logged_in)                               // 뒤로가기 전까지 반복
                 {                                                                   // while 시작
-                    int sub = -1;                                                   // 파일 서브메뉴 선택 변수
+                    int sub = tui_menu("파일 메뉴", {
+                        "파일 목록",
+                        "파일 업로드",
+                        "파일 다운로드",
+                        "파일 삭제",
+                        "뒤로가기"
+                    });
 
-                    system("clear");                                                // 화면 정리
-                    std::cout << "============================\n";                  // UI 라인
-                    std::cout << "        파일 메뉴\n";                             // UI 제목
-                    std::cout << "============================\n";                  // UI 라인
-                    std::cout << "1. 파일 목록\n";                                  // 파일 목록
-                    std::cout << "2. 파일 업로드\n";                                // 파일 업로드
-                    std::cout << "3. 파일 다운로드\n";                             // 파일 다운로드
-                    std::cout << "4. 파일 삭제\n";                             // 파일 삭제
-                    std::cout << "5. 뒤로가기\n";                                   // 뒤로가기
-                    std::cout << "[입력] ";                                       // 입력 프롬프트
-
-                    if (!(std::cin >> sub))                                         // 입력 실패 처리
-                    {                                                               // if 시작
-                        clear_stdin_line();                                         // 입력 정리
-                        continue;                                                   // 다시 서브메뉴
-                    }                                                               // if 끝
-                    clear_stdin_line();                                             // 개행 제거
-
-                    if (sub == 5)                                                   // 뒤로가기
-                    {                                                               // if 시작
-                        back = true;                                                // 루프 종료
-                        continue;                                                   // 상위 메뉴로
-                    }                                                               // if 끝
-
-                    if (sub == 1) { handle_file_list(sock);     continue; }
-                    if (sub == 2) { handle_file_upload(sock);   continue; }
-                    if (sub == 3) { handle_file_download(sock); continue; }
-                    if (sub == 4) { handle_file_delete(sock);   continue; }                                                               // if 끝
+                    if (sub == -1 || sub == 4) { back = true; continue; }  // ESC or 뒤로가기
+                    if (sub == 0) { handle_file_list(sock);     continue; }
+                    if (sub == 1) { handle_file_upload(sock);   continue; }
+                    if (sub == 2) { handle_file_download(sock); continue; }
+                    if (sub == 3) { handle_file_delete(sock);   continue; }
                 }                                                                   // 파일 서브메뉴 루프 끝
 
                 continue;                                                           // 메인 메뉴로 복귀

@@ -16,6 +16,7 @@
 // ============================================================================
 
 #include "file_client.hpp"
+#include "tui.hpp"
 #include "../client/client_net.hpp"
 #include "../protocol/json_packet.hpp"
 #include "../protocol/protocal.h"
@@ -498,7 +499,7 @@ void handle_file_upload(int sock)
     }
 
     // ── 파일 탐색기로 업로드할 파일 선택 ──
-    std::string selected = browse_local(g_upload_dir, BROWSE_FILE);
+    std::string selected = tui_browse_file(g_upload_dir);
     if (selected.empty()) {
         printf("\033[H\033[J");
         std::cout << "취소되었습니다.\n";
@@ -587,41 +588,12 @@ void handle_file_download(int sock)
     int64_t used  = list_resp["payload"].value("storage_used",  (int64_t)0);
     int64_t total = list_resp["payload"].value("storage_total", (int64_t)0);
 
-    // ── 목록 출력 후 번호로 선택 ───────────────────────────────────
-    printf("\033[H\033[J");
-    std::cout << "==========================================\n";
-    std::cout << "  클라우드 파일 목록 (불러오기)\n";
-    std::cout << "  사용: " << human_size(used) << " / 전체: " << human_size(total) << "\n";
-    std::cout << "------------------------------------------\n";
+    // ── 방향키로 파일 선택 ────────────────────────────────────────
+    int choice = tui_select_cloud_file("파일 다운로드", files, used, total);
+    if (choice < 0) return;
 
-    if (files.empty()) {
-        std::cout << "  (파일 없음)\n";
-        std::cout << "==========================================\n";
-        std::cout << "계속하려면 Enter...";
-        std::cin.get();
-        return;
-    }
-
-    int idx = 1;
-    for (auto& f : files) {
-        std::cout << "  [" << idx++ << "] "
-                  << f.value("file_name", "") << "  "
-                  << human_size(f.value("file_size", (int64_t)0)) << "  "
-                  << f.value("created_at", "");
-        std::string fol = f.value("folder", "");
-        if (!fol.empty()) std::cout << "  /" << fol;
-        std::cout << "\n";
-    }
-    std::cout << "==========================================\n";
-    std::cout << "번호 선택 (0=취소): ";
-
-    int choice = 0;
-    std::cin >> choice;
-    std::cin.ignore();
-    if (choice <= 0 || choice > (int)files.size()) return;
-
-    int64_t file_id   = files[choice - 1].value("file_id",   (int64_t)0);
-    std::string fname = files[choice - 1].value("file_name", "file");
+    int64_t file_id   = files[choice].value("file_id",   (int64_t)0);
+    std::string fname = files[choice].value("file_name", "file");
 
     g_file_transfer_in_progress = true;
 
@@ -657,17 +629,39 @@ void handle_file_download(int sock)
     std::cout << "\n저장할 폴더를 선택하세요. (Enter로 탐색기 시작)\n";
     std::cin.get();
 
-    std::string save_dir = browse_local(g_download_dir, BROWSE_DIR);
+    std::string save_dir = tui_browse_dir(g_download_dir);
     if (save_dir.empty()) {
         save_dir = g_download_dir;
         printf("\033[H\033[J");
         std::cout << "[안내] 기본 폴더에 저장합니다: " << save_dir << "\n";
     }
 
-    std::string save_path = save_dir + "/" + fname;
+    // ── 중복 파일명 방지 (요구사항 12-1-11, 다운로드에도 동일 적용) ──
+    // 같은 폴더에 동일 이름이 있으면 name_1.ext, name_2.ext ... 로 변경
+    auto resolve_local = [](const std::string& dir, const std::string& filename) -> std::string {
+        if (!fs::exists(fs::path(dir) / filename)) return filename;
+        std::string stem = fs::path(filename).stem().string();
+        std::string ext  = fs::path(filename).extension().string();
+        for (int i = 1; i <= 9999; ++i) {
+            std::string cand = stem + "_" + std::to_string(i) + ext;
+            if (!fs::exists(fs::path(dir) / cand)) return cand;
+        }
+        return filename + "_dup";
+    };
+
+    std::string resolved_name = resolve_local(save_dir, fname);
+    std::string save_path     = save_dir + "/" + resolved_name;
+
     printf("\033[H\033[J");
-    std::cout << "[파일 수신 중] " << fname << "  (" << human_size(fsize) << ")\n";
-    std::cout << "저장 위치: " << save_path << "\n";
+    std::cout << "==========================================\n";
+    std::cout << "  [파일 수신 중]\n";
+    std::cout << "  파일명: " << resolved_name;
+    if (resolved_name != fname)
+        std::cout << "  (원본: " << fname << ")";
+    std::cout << "\n";
+    std::cout << "  크기: " << human_size(fsize) << "\n";
+    std::cout << "  저장 위치: " << save_path << "\n";
+    std::cout << "==========================================\n";
 
     // ── 청크 수신 루프 ────────────────────────────────────────────
     std::ofstream ofs(save_path, std::ios::binary | std::ios::trunc);
@@ -694,7 +688,7 @@ void handle_file_download(int sock)
                   static_cast<std::streamsize>(data.size()));
 
         int pct = (int)(((i + 1) * 100) / tc);
-        std::cout << "\r[파일 수신 중] " << pct << "% (" << i+1 << "/" << tc << ")   " << std::flush;
+        std::cout << "\r  진행: " << pct << "% (" << i+1 << "/" << tc << ")   " << std::flush;
     }
     ofs.close();
 
@@ -702,8 +696,11 @@ void handle_file_download(int sock)
         json done;
         recv_json(sock, done);
         printf("\033[H\033[J");
-        std::cout << "[파일 수신 완료] " << fname << "\n";
-        std::cout << "저장 위치: " << save_path << "\n";
+        std::cout << "==========================================\n";
+        std::cout << "  [파일 수신 완료]\n";
+        std::cout << "  파일명: " << resolved_name << "\n";
+        std::cout << "  저장 위치: " << save_path << "\n";
+        std::cout << "==========================================\n";
     } else {
         fs::remove(save_path);
         std::cout << "\n[파일 수신 실패] 불완전 파일 삭제됨\n";
@@ -744,46 +741,25 @@ void handle_file_delete(int sock)
 
     json files = list_resp["payload"].value("files", json::array());
 
-    // ── 목록 출력 후 번호로 선택 ───────────────────────────────────
-    printf("\033[H\033[J");
-    std::cout << "==========================================\n";
-    std::cout << "  클라우드 파일 목록 (삭제)\n";
-    std::cout << "------------------------------------------\n";
-
     if (files.empty()) {
+        printf("\033[2J\033[3J\033[H");
         std::cout << "  (파일 없음)\n";
-        std::cout << "==========================================\n";
         std::cout << "계속하려면 Enter...";
         std::cin.get();
         return;
     }
 
-    int idx = 1;
-    for (auto& f : files) {
-        std::cout << "  [" << idx++ << "] "
-                  << f.value("file_name", "") << "  "
-                  << human_size(f.value("file_size", (int64_t)0)) << "  "
-                  << f.value("created_at", "");
-        std::string fol = f.value("folder", "");
-        if (!fol.empty()) std::cout << "  /" << fol;
-        std::cout << "\n";
-    }
-    std::cout << "==========================================\n";
-    std::cout << "번호 선택 (0=취소): ";
+    // ── 방향키로 파일 선택 ────────────────────────────────────────
+    int choice = tui_select_cloud_file("파일 삭제", files);
+    if (choice < 0) return;
 
-    int choice = 0;
-    std::cin >> choice;
-    std::cin.ignore();
-    if (choice <= 0 || choice > (int)files.size()) return;
+    int64_t   file_id  = files[choice].value("file_id",   (int64_t)0);
+    std::string fname  = files[choice].value("file_name", "");
 
-    int64_t   file_id  = files[choice - 1].value("file_id",   (int64_t)0);
-    std::string fname  = files[choice - 1].value("file_name", "");
-
-    std::cout << "\n'" << fname << "' 을(를) 정말 삭제하시겠습니까? (y/n): ";
-    char yn;
-    std::cin >> yn;
-    std::cin.ignore();
-    if (yn != 'y' && yn != 'Y') { std::cout << "취소\n"; return; }
+    // ── 삭제 확인 ─────────────────────────────────────────────────
+    int confirm = tui_menu("'" + fname + "' 을(를) 삭제하시겠습니까?",
+                           {"아니오 (취소)", "예 (삭제)"});
+    if (confirm != 1) { return; }
 
     json req = make_request(PKT_FILE_DELETE_REQ);
     req["user_no"]            = g_user_no;
