@@ -26,6 +26,7 @@
 #include <sys/eventfd.h>                    // eventfd
 #include <nlohmann/json.hpp>                // JSON 라이브러리 사용
 #include <mariadb/conncpp.hpp>              // MariaDB C++ Connector 사용
+#include "protocol/protocol.h"
 
 extern "C" {                                // C 모듈을 C 링크로 사용
 #include "packet.h"                         // length-prefix send/recv 공용 모듈
@@ -39,26 +40,6 @@ static constexpr int EPOLL_MAX_EVENTS = 128; // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
 static constexpr int DEFAULT_PORT = 5010;   // 기본 포트
 static constexpr int LISTEN_BACKLOG = 64;   // listen backlog
-
-// ============================================================================ // 구분 주석
-// 프로토콜 타입(예시)
-// 실제론 네가 만든 protocol.h의 enum 값을 include 해서 쓰면 됨
-// 여기서는 서버 뼈대라 자리만 잡음
-// ============================================================================ // 구분 주석
-
-enum PacketType : int {                     // 패킷 타입 enum 시작
-    PKT_AUTH_SIGNUP_REQ  = 0x0101,          // 회원가입 요청
-    PKT_AUTH_LOGIN_REQ   = 0x0102,          // 로그인 요청
-    PKT_MSG_SEND_REQ     = 0x0201,          // 메시지 전송 요청
-    PKT_MSG_LIST_REQ     = 0x0203,          // 메시지 목록 요청
-    PKT_FILE_UPLOAD_REQ   = 0x0020,
-    PKT_FILE_CHUNK        = 0x0021,
-    PKT_FILE_DOWNLOAD_REQ = 0x0022,
-    PKT_FILE_DELETE_REQ   = 0x0023,
-    PKT_FILE_LIST_REQ     = 0x0024,          // 파일 다운로드 요청
-    PKT_RESP_OK          = 0x8000,          // OK 응답(범용)
-    PKT_RESP_ERR         = 0x8001           // ERR 응답(범용)
-};                                          // enum 끝
 
 // ============================================================================ // 구분 주석
 // 세션 구조체: epoll 스레드에서만 접근/수정하는 것을 기본 원칙으로 둠
