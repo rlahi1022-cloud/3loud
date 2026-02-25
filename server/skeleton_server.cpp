@@ -552,6 +552,14 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_FILE_LIST_REQ:
                 out_payload = handle_file_list_req(req, *conn);
                 break;
+                
+            case PKT_MSG_SEND_REQ:
+                out_payload = handle_msg_send(req, *conn);
+                break;
+
+            case PKT_MSG_LIST_REQ:
+                out_payload = handle_msg_list(req, *conn);
+                break;
             default:
             {                                                                                          // 알 수 없는 타입
                 out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
