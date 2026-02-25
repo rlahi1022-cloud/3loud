@@ -117,95 +117,133 @@ static std::string make_resp(int type,      // 응답 타입
     return res.dump();                      // JSON 문자열로 반환
 }                                           // 함수 끝
 
-// ============================================================================ // 구분 주석
-// 핸들 함수 자리: 팀원들이 이 함수들만 작성하면 됨
-// DB 커넥션은 worker thread 안에서만 사용(요구사항 YES)
-// ============================================================================ // 구분 주석
+// // ============================================================================ // 구분 주석
+// // 핸들 함수 자리: 팀원들이 이 함수들만 작성하면 됨
+// // DB 커넥션은 worker thread 안에서만 사용(요구사항 YES)
+// // ============================================================================ // 구분 주석
 
-static std::string handle_auth_signup(const json& req, sql::Connection& db) { // 회원가입 핸들
-    json payload = req.value("payload", json::object());                      // payload 방어 파싱
-    std::string email = payload.value("email", "");                           // email 디폴트 빈문자
-    std::string pw_hash = payload.value("pw_hash", "");                       // pw_hash 디폴트 빈문자
-    std::string name = payload.value("name", "");                             // name 디폴트 빈문자
-    if (email.empty() || pw_hash.empty() || name.empty()) {                   // 필수값 누락 검사
-        return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러 응답
-    }                                                                         // if 끝
-    // 여기서 DB INSERT / 이메일 인증 흐름 등 실제 구현 들어가면 됨              // 구현 안내
-    return make_resp(PKT_RESP_OK, 0, "signup placeholder", json::object());   // 임시 성공 응답
-}                                                                              // 함수 끝
+// static std::string handle_auth_signup(const json& req, sql::Connection& db) { // 회원가입 핸들
+//     json payload = req.value("payload", json::object());                      // payload 방어 파싱
+//     std::string email = payload.value("email", "");                           // email 디폴트 빈문자
+//     std::string pw_hash = payload.value("pw_hash", "");                       // pw_hash 디폴트 빈문자
+//     std::string name = payload.value("name", "");                             // name 디폴트 빈문자
+//     if (email.empty() || pw_hash.empty() || name.empty()) {                   // 필수값 누락 검사
+//         return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러 응답
+//     }                                                                         // if 끝
+//     // 여기서 DB INSERT / 이메일 인증 흐름 등 실제 구현 들어가면 됨              // 구현 안내
+//     return make_resp(PKT_RESP_OK, 0, "signup placeholder", json::object());   // 임시 성공 응답
+// }                                                                              // 함수 끝
 
-static std::string handle_auth_login(const json& req, sql::Connection& db) {  // 로그인 핸들
-    json payload = req.value("payload", json::object());                      // payload 방어 파싱
-    std::string email = payload.value("email", "");                           // email
-    std::string pw_hash = payload.value("pw_hash", "");                       // pw_hash
-    if (email.empty() || pw_hash.empty()) {                                   // 필수값 확인
-        return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러 응답
-    }                                                                         // if 끝
-    // DB SELECT 비교 / 세션 토큰 발급 등 구현                                   // 구현 안내
-    json out;                                                                  // payload 만들기
-    out["user"] = { {"email", email} };                                        // 유저 정보 예시
-    return make_resp(PKT_RESP_OK, 0, "login placeholder", out);                // 임시 성공 응답
-}                                                                              // 함수 끝
+// static std::string handle_auth_login(const json& req, sql::Connection& db) {  // 로그인 핸들
+//     json payload = req.value("payload", json::object());                      // payload 방어 파싱
+//     std::string email = payload.value("email", "");                           // email
+//     std::string pw_hash = payload.value("pw_hash", "");                       // pw_hash
+//     if (email.empty() || pw_hash.empty()) {                                   // 필수값 확인
+//         return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러 응답
+//     }                                                                         // if 끝
+//     // DB SELECT 비교 / 세션 토큰 발급 등 구현                                   // 구현 안내
+//     json out;                                                                  // payload 만들기
+//     out["user"] = { {"email", email} };                                        // 유저 정보 예시
+//     return make_resp(PKT_RESP_OK, 0, "login placeholder", out);                // 임시 성공 응답
+// }                                                                              // 함수 끝
 
-static std::string handle_msg_send(const json& req, sql::Connection& db) {    // 메시지 전송 핸들
-    json payload = req.value("payload", json::object());                      // payload
-    std::string to = payload.value("to", "");                                 // 받는 사람
-    std::string content = payload.value("content", "");                       // 내용
-    if (to.empty() || content.empty()) {                                      // 필수값 확인
-        return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러
-    }                                                                         // if 끝
-    // DB INSERT messages 구현                                                  // 구현 안내
-    return make_resp(PKT_RESP_OK, 0, "msg_send placeholder", json::object()); // 임시 성공
-}                                                                              // 함수 끝
+// static std::string handle_msg_send(const json& req, sql::Connection& db) {    // 메시지 전송 핸들
+//     json payload = req.value("payload", json::object());                      // payload
+//     std::string to = payload.value("to", "");                                 // 받는 사람
+//     std::string content = payload.value("content", "");                       // 내용
+//     if (to.empty() || content.empty()) {                                      // 필수값 확인
+//         return make_resp(PKT_RESP_ERR, -1, "필수 필드 누락", json::object());  // 에러
+//     }                                                                         // if 끝
+//     // DB INSERT messages 구현                                                  // 구현 안내
+//     return make_resp(PKT_RESP_OK, 0, "msg_send placeholder", json::object()); // 임시 성공
+// }                                                                              // 함수 끝
 
 // ============================================================================ // 구분 주석
 // Worker Thread: 요청 처리 담당 (DB 연결은 여기서 생성해서 전용으로 사용)
 // ============================================================================ // 구분 주석
 
-static void worker_loop(std::string db_url, std::string db_user, std::string db_pw) { // 워커 루프
-    sql::Driver* driver = nullptr;                                                   // 드라이버 포인터
-    std::unique_ptr<sql::Connection> conn;                                           // DB 커넥션
-    try {                                                                            // try 시작
-        driver = sql::mariadb::get_driver_instance();                                // 드라이버 인스턴스 획득
-        sql::Properties props({{"user", db_user}, {"password", db_pw}});             // 접속 속성 생성
-        conn.reset(driver->connect(db_url, props));                                  // DB 연결 생성
-        {                                                                            // 블록 시작
-            std::unique_ptr<sql::Statement> st(conn->createStatement());             // statement 생성
-            st->execute("SET NAMES 'utf8mb4'");                                      // 인코딩 설정
-        }                                                                            // 블록 끝
-        std::cout << "[Worker] DB connected\n";                                      // 로그 출력
-    } catch (const sql::SQLException& e) {                                           // SQL 예외 처리
-        std::cerr << "[Worker] DB connect failed: " << e.what() << "\n";             // 오류 출력
-        g_running = false;                                                           // 서버 종료 플래그
-        return;                                                                      // 워커 종료
-    }                                                                                // try-catch 끝
+// ============================================================================
+// Worker Thread (안정화 + 구조 정리 완료 버전)
+// ============================================================================
+static void worker_loop(std::string db_url,
+                        std::string db_user,
+                        std::string db_pw)
+{
+    sql::Driver* driver = nullptr;
+    std::unique_ptr<sql::Connection> conn;
 
-    while (g_running.load()) {                                                       // 서버 실행 중 반복
-        Task task;                                                                   // 꺼낼 작업
-        {                                                                            // lock 블록 시작
-            std::unique_lock<std::mutex> lk(g_req_m);                                // 요청 큐 lock
-            g_req_cv.wait(lk, [] {                                                    // CV 대기
-                return !g_req_q.empty() || !g_running.load();                        // 큐가 있거나 종료면 깸
-            });                                                                      // wait 끝
-            if (!g_running.load()) break;                                            // 종료면 탈출
-            task = g_req_q.front();                                                  // 큐 front 복사
-            g_req_q.pop();                                                           // 큐 pop
-        }                                                                            // lock 블록 끝
+    try {
+        driver = sql::mariadb::get_driver_instance();
 
-        std::string out_payload;                                                     // 응답 payload 문자열
-        try {                                                                        // try 시작
-            json req = json::parse(task.payload);                                    // JSON 파싱
-            int type = req.value("type", 0);                                         // type 방어 파싱
-            switch (type) {                                                          // type 분기
-                case PKT_AUTH_SIGNUP_REQ:                                            // 회원가입
-                    out_payload = handle_auth_signup(req, *conn);                    // 핸들 호출
-                    break;                                                           // break
-                case PKT_AUTH_LOGIN_REQ:                                             // 로그인
-                    out_payload = handle_auth_login(req, *conn);                     // 핸들 호출
-                    break;                                                           // break
-                case PKT_MSG_SEND_REQ:                                               // 메시지 전송
-                    out_payload = handle_msg_send(req, *conn);                       // 핸들 호출
+        sql::Properties props({
+            {"user", db_user},
+            {"password", db_pw}
+        });
+
+        conn.reset(driver->connect(db_url, props));
+
+        {
+            std::unique_ptr<sql::Statement> st(conn->createStatement());
+            st->execute("SET NAMES 'utf8mb4'");
+        }
+
+        std::cout << "[Worker] DB connected\n";
+    }
+    catch (const sql::SQLException& e) {
+        std::cerr << "[Worker] DB connect failed: " << e.what() << "\n";
+        g_running = false;
+        return;
+    }
+
+    while (g_running.load())
+    {
+        Task task;
+
+        // ===============================
+        // 요청 큐 대기
+        // ===============================
+        {
+            std::unique_lock<std::mutex> lk(g_req_m);
+
+            g_req_cv.wait(lk, [] {
+                return !g_req_q.empty() || !g_running.load();
+            });
+
+            if (!g_running.load())
+                break;
+
+            task = g_req_q.front();
+            g_req_q.pop();
+        }
+
+        std::string out_payload;
+
+        // ===============================
+        // JSON 파싱 + 핸들 분기
+        // ===============================
+        try
+        {
+            json req = json::parse(task.payload);
+            int type = req.value("type", 0);
+
+            switch (type)
+            {
+                case PKT_AUTH_REGISTER_REQ:
+                    out_payload = handle_signup(req, *conn);
                     break;
+
+                case PKT_AUTH_LOGIN_REQ:
+                    out_payload = handle_login(req, *conn);
+                    break;
+
+                case PKT_AUTH_LOGOUT_REQ:
+                    out_payload = handle_logout(req, *conn);
+                    break;
+
+                case PKT_MSG_SEND_REQ:
+                    out_payload = handle_msg_send(req, *conn);
+                    break;
+
                 case PKT_FILE_UPLOAD_REQ:
                     out_payload = handle_file_upload_req(req, *conn);
                     break;
@@ -215,7 +253,6 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                     break;
 
                 case PKT_FILE_DOWNLOAD_REQ:
-                    // 다운로드는 내부에서 sock에 직접 청크를 전송하므로 sock 전달 필요
                     out_payload = handle_file_download_req(task.sock, req, *conn);
                     break;
 
@@ -225,26 +262,50 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
 
                 case PKT_FILE_LIST_REQ:
                     out_payload = handle_file_list_req(req, *conn);
-                    break;                                                           // break
-                default: {                                                           // 알 수 없는 타입
-                    out_payload = make_resp(PKT_RESP_ERR, -1, "Unknown type", json::object()); // 에러
-                    break;                                                           // break
-                }                                                                    // default 블록 끝
-            }                                                                        // switch 끝
-        } catch (const std::exception& e) {                                          // 파싱/처리 예외
-            out_payload = make_resp(PKT_RESP_ERR, -1, std::string("Exception: ") + e.what(), json::object()); // 에러 응답
-        }                                                                            // try-catch 끝
+                    break;
 
-        {                                                                            // 응답 큐 lock 블록
-            std::lock_guard<std::mutex> lk(g_res_m);                                 // 응답 큐 lock
-            g_res_q.push(ResponseTask{task.sock, out_payload});                       // 응답 작업 push
-        }                                                                            // lock 블록 끝
+                default:
+                    out_payload = make_resp(type, -1, "Unknown type");
+                    break;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            out_payload = make_resp(
+                0,
+                -1,
+                std::string("json parse error: ") + e.what()
+            );
+        }
 
-        // epoll 스레드에 응답이 준비됐음을 알림 (없으면 epoll이 응답 큐를 영원히 모름)
-        uint64_t val = 1;
-        write(g_wake_fd, &val, sizeof(val));                                         // wake_fd 신호
-    }                                                                                // while 끝
-}                                                                                    // worker_loop 끝
+        // ===============================
+        // 응답 큐 push
+        // ===============================
+        if (!out_payload.empty())
+        {
+            {
+                std::lock_guard<std::mutex> lk(g_res_m);
+                g_res_q.push(ResponseTask{ task.sock, out_payload });
+            }
+
+            // ===============================
+            // epoll 깨우기 (eventfd)
+            // ===============================
+            uint64_t val = 1;
+            int wr = write(g_wake_fd, &val, sizeof(val));
+
+            if (wr < 0)
+            {
+                if (errno != EAGAIN && errno != EWOULDBLOCK)
+                {
+                    std::cerr << "eventfd write failed: "
+                              << strerror(errno) << "\n";
+                    g_running = false;
+                }
+            }
+        }
+    }
+}
 
 // ============================================================================ // 구분 주석
 // epoll 서버 본체
@@ -324,7 +385,14 @@ int main(int argc, char** argv) {                                               
 
     std::unordered_map<int, Session> sessions;                                        // 세션 맵
 
-    std::thread worker(worker_loop, db_url, db_user, db_pw);                          // worker thread 시작
+    static constexpr int WORKER_COUNT = 2; // 코어 1개면 2개 정도 테스트
+
+    std::vector<std::thread> workers;
+
+    for (int i = 0; i < WORKER_COUNT; ++i)
+    {
+        workers.emplace_back(worker_loop, db_url, db_user, db_pw);
+    }
 
     std::cout << "[Server] started port=" << port << "\n";                            // 서버 시작 로그
 
