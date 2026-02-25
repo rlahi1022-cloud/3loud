@@ -1,9 +1,9 @@
-// ============================================================================ 
+// ============================================================================
 // 파일명: server.cpp                                                          // 파일명 설명
 // 목적: epoll 기반 메인루프 + worker thread + DB(Worker 전용) + length-prefix // 목적 설명
 // 전제: common/packet.c, common/packet.h 를 공용 모듈로 사용                  // 전제 설명
 // 플랫폼: Linux                                                                // 플랫폼 설명
-// ============================================================================ 
+// ============================================================================
 #include "email.h"
 #include <iostream>            // 표준 입출력 사용
 #include <string>              // std::string 사용
@@ -34,12 +34,12 @@
 
 extern "C"
 {                   // C 모듈을 C 링크로 사용
-    #include "packet.h" // length-prefix send/recv 공용 모듈
+#include "packet.h" // length-prefix send/recv 공용 모듈
 } // extern "C" 끝
 
 using json = nlohmann::json; // json 타입 별칭
 
-#include "../server_handle/file_handler.hpp" 
+#include "../server_handle/file_handler.hpp"
 
 static constexpr int EPOLL_MAX_EVENTS = 128;             // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
@@ -52,19 +52,20 @@ int g_wake_fd = -1;
 
 // 세션 구조체: epoll 스레드에서만 접근/수정하는 것을 기본 원칙으로 둠
 // write_buf는 epoll 스레드가 flush 하며, worker는 응답 큐에만 넣음
-// ============================================================================ 
+// ============================================================================
 
-struct Session {                            // 세션 구조체 시작
-    int sock = -1;                          // 클라이언트 소켓 fd
-    std::string peer_ip;                    // 클라이언트 IP 문자열
-    uint16_t peer_port = 0;                 // 클라이언트 포트
-    std::string write_buf;                  // 전송 대기 버퍼
+struct Session
+{                           // 세션 구조체 시작
+    int sock = -1;          // 클라이언트 소켓 fd
+    std::string peer_ip;    // 클라이언트 IP 문자열
+    uint16_t peer_port = 0; // 클라이언트 포트
+    std::string write_buf;  // 전송 대기 버퍼
     std::string read_buf;
-};                                          // 세션 구조체 끝
+}; // 세션 구조체 끝
 
-// ============================================================================ 
+// ============================================================================
 // Task / Response: epoll -> worker / worker -> epoll 교환용
-// ============================================================================ 
+// ============================================================================
 
 struct Task
 {                        // 작업 요청 구조체 시작
@@ -78,9 +79,9 @@ struct ResponseTask
     std::string payload; // JSON 문자열 payload
 }; // 응답 작업 구조체 끝
 
-// ============================================================================ 
+// ============================================================================
 // 전역(공유) 큐: worker 스레드와 epoll 스레드가 공유하므로 mutex로 보호
-// ============================================================================ 
+// ============================================================================
 
 static std::queue<Task> g_req_q;          // 요청 큐
 static std::queue<ResponseTask> g_res_q;  // 응답 큐
@@ -96,9 +97,9 @@ static std::mutex g_login_m;                                // 위 맵들을 보
 static std::map<std::string, int> g_fail_counts; // 이메일 -> 실패횟수
 static std::mutex g_fail_m;                      // 실패횟수 맵 보호용
 
-// ============================================================================ 
+// ============================================================================
 // 유틸: non-blocking 설정
-// ============================================================================ 
+// ============================================================================
 
 static bool set_nonblocking(int fd)
 {                                      // 논블로킹 설정 함수 시작
@@ -110,21 +111,21 @@ static bool set_nonblocking(int fd)
     return true;      // 성공
 } // 함수 끝
 
-// ============================================================================ 
+// ============================================================================
 // 유틸: 안전한 close + 에러 무시
-// ============================================================================ 
+// ============================================================================
 
 static void safe_close(int fd)
 { // 안전 close 함수 시작
     if (fd >= 0)
     {                // 유효 fd인지 확인
         ::close(fd); // close 호출
-    } 
+    }
 } // 함수 끝
 
-// ============================================================================ 
+// ============================================================================
 // 유틸: 만료된 인증정보 처리 (메모리 누수 해결)
-// ============================================================================ 
+// ============================================================================
 // [청소 함수] 로그를 추가하여 동작 확인
 static void cleanup_pending_map()
 {
@@ -182,10 +183,10 @@ static void logout_unregister(int sock)
     }
 }
 
-// // ============================================================================ 
+// // ============================================================================
 // // 핸들 함수 자리: 팀원들이 이 함수들만 작성하면 됨
 // // DB 커넥션은 worker thread 안에서만 사용(요구사항 YES)
-// // ============================================================================ 
+// // ============================================================================
 
 // [핸들러] 1단계: 회원가입 요청 (인증번호 발송)
 static std::string handle_auth_signup_req(const json &req, sql::Connection &db)
@@ -371,13 +372,14 @@ static std::string handle_auth_login(int client_sock, const json &req, sql::Conn
     try
     {
         std::unique_ptr<sql::PreparedStatement> st(db.prepareStatement(
-            "SELECT pw_hash, nickname, grade, is_active FROM users WHERE email = ?"));
+            "SELECT no,pw_hash, nickname, grade, is_active FROM users WHERE email = ?"));
         st->setString(1, email);
         std::unique_ptr<sql::ResultSet> res(st->executeQuery());
 
         if (res->next())
         {
             // .c_str()을 사용하여 std::string 변환
+            int user_no = res->getInt("no"); // 넘버 받아서 로그인 여부 확인
             std::string db_pw_hash = res->getString("pw_hash").c_str();
             std::string nickname = res->getString("nickname").c_str();
             int is_active = res->getInt("is_active");
@@ -406,6 +408,7 @@ static std::string handle_auth_login(int client_sock, const json &req, sql::Conn
                 out_payload["email"] = email;
                 out_payload["nickname"] = nickname;
                 out_payload["grade"] = grade;
+                out_payload["user_no"] = user_no;
 
                 std::cout << "[Info] User " << email << " 로그인 (socket " << client_sock << " connect).\n";
                 return make_resp(PKT_AUTH_LOGIN_REQ, VALUE_SUCCESS, "로그인 성공", out_payload).dump();
@@ -464,14 +467,14 @@ static std::string handle_msg_send(const json &req, sql::Connection &db)
     if (to.empty() || content.empty())
     {                                                                                            // 필수값 확인
         return make_resp(VALUE_ERR_INVALID_PACKET, -1, "필수 필드 누락", json::object()).dump(); // 에러
-    } 
+    }
     // DB INSERT messages 구현                                                  // 구현 안내
     return make_resp(VALUE_SUCCESS, 0, "msg_send placeholder", json::object()).dump(); // 임시 성공
 } // 함수 끝
 
-// ============================================================================ 
+// ============================================================================
 // Worker Thread: 요청 처리 담당 (DB 연결은 여기서 생성해서 전용으로 사용)
-// ============================================================================ 
+// ============================================================================
 
 static void worker_loop(std::string db_url, std::string db_user, std::string db_pw)
 {                                          // 워커 루프
@@ -517,43 +520,43 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             int type = req.value("type", 0);      // type 방어 파싱
             switch (type)
             {                                                     // 1단계:가입요청(메일발송)                                    // type 분기
-                case PKT_AUTH_REGISTER_REQ:                           // 회원가입
-                    out_payload = handle_auth_signup_req(req, *conn); // 핸들 호출
-                    break;
-                    // 2단계: 인증번호 검증 (DB 저장)
-                case PKT_AUTH_VERIFY_REQ:
-                    out_payload = handle_auth_verify_req(req, *conn);
-                    break;                                                  // break
-                case PKT_AUTH_LOGIN_REQ:                                    // 로그인
-                    out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
-                    break;                                                  // break
-                case PKT_MSG_SEND_REQ:                                      // 메시지 전송
-                    out_payload = handle_msg_send(req, *conn);              // 핸들 호출
-                    break;                                                  // break
-                case PKT_FILE_UPLOAD_REQ:
-                        out_payload = handle_file_upload_req(req, *conn);
-                        break;
+            case PKT_AUTH_REGISTER_REQ:                           // 회원가입
+                out_payload = handle_auth_signup_req(req, *conn); // 핸들 호출
+                break;
+                // 2단계: 인증번호 검증 (DB 저장)
+            case PKT_AUTH_VERIFY_REQ:
+                out_payload = handle_auth_verify_req(req, *conn);
+                break;                                                  // break
+            case PKT_AUTH_LOGIN_REQ:                                    // 로그인
+                out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
+                break;                                                  // break
+            case PKT_MSG_SEND_REQ:                                      // 메시지 전송
+                out_payload = handle_msg_send(req, *conn);              // 핸들 호출
+                break;                                                  // break
+            case PKT_FILE_UPLOAD_REQ:
+                out_payload = handle_file_upload_req(req, *conn);
+                break;
 
-                case PKT_FILE_CHUNK:
-                    out_payload = handle_file_chunk(req, *conn);
-                    break;
+            case PKT_FILE_CHUNK:
+                out_payload = handle_file_chunk(req, *conn);
+                break;
 
-                case PKT_FILE_DOWNLOAD_REQ:
-                    out_payload = handle_file_download_req(task.sock, req, *conn);
-                    break;
+            case PKT_FILE_DOWNLOAD_REQ:
+                out_payload = handle_file_download_req(task.sock, req, *conn);
+                break;
 
-                case PKT_FILE_DELETE_REQ:
-                    out_payload = handle_file_delete_req(req, *conn);
-                    break;
+            case PKT_FILE_DELETE_REQ:
+                out_payload = handle_file_delete_req(req, *conn);
+                break;
 
-                case PKT_FILE_LIST_REQ:
-                    out_payload = handle_file_list_req(req, *conn);
-                    break;
-                default:
-                {                                                                                          // 알 수 없는 타입
-                    out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
-                    break;                                                                                 // break
-                } // default 블록 끝
+            case PKT_FILE_LIST_REQ:
+                out_payload = handle_file_list_req(req, *conn);
+                break;
+            default:
+            {                                                                                          // 알 수 없는 타입
+                out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
+                break;                                                                                 // break
+            } // default 블록 끝
             } // switch 끝
         }
         catch (const std::exception &e)
@@ -574,31 +577,32 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
     } // while 끝
 } // worker_loop 끝
 
-// ============================================================================ 
+// ============================================================================
 // epoll 서버 본체
-// ============================================================================ 
+// ============================================================================
 int main(int argc, char **argv)
 { // main 시작
     srand(static_cast<unsigned int>(time(NULL)));
     email_init();
+    file_handler_init("./cloud_storage");
+    // 초기화
     signal(SIGPIPE, SIG_IGN); // SIGPIPE 무시(끊긴 소켓 send 방지)
     int port = DEFAULT_PORT;  // 포트 기본값
     if (argc >= 2)
     {                              // 인자 있으면
         port = std::stoi(argv[1]); // 포트 파싱
-    } 
+    }
 
     std::string db_url = "jdbc:mariadb://10.10.20.108/3loud"; // DB URL 예시
     std::string db_user = "gm_3loud";                         // DB 유저 예시
     std::string db_pw = "1234";                               // DB 비번 예시
-
 
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0); // 리슨 소켓 생성
     if (listen_fd < 0)
     {                                                              // 실패 검사
         std::cerr << "socket failed: " << strerror(errno) << "\n"; // 로그
         return 1;                                                  // 종료
-    } 
+    }
 
     int opt = 1;                                                        // 소켓 옵션 값
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); // 재사용 옵션
@@ -614,21 +618,21 @@ int main(int argc, char **argv)
         std::cerr << "bind failed: " << strerror(errno) << "\n"; // 로그
         safe_close(listen_fd);                                   // close
         return 1;                                                // 종료
-    } 
+    }
 
     if (listen(listen_fd, LISTEN_BACKLOG) < 0)
     {                                                              // 리슨
         std::cerr << "listen failed: " << strerror(errno) << "\n"; // 로그
         safe_close(listen_fd);                                     // close
         return 1;                                                  // 종료
-    } 
+    }
 
     if (!set_nonblocking(listen_fd))
     {                                                  // 논블로킹 설정
         std::cerr << "listen_fd nonblocking failed\n"; // 로그
         safe_close(listen_fd);                         // close
         return 1;                                      // 종료
-    } 
+    }
 
     int epfd = epoll_create1(0); // epoll fd 생성
     if (epfd < 0)
@@ -636,7 +640,7 @@ int main(int argc, char **argv)
         std::cerr << "epoll_create1 failed: " << strerror(errno) << "\n"; // 로그
         safe_close(listen_fd);                                            // close
         return 1;                                                         // 종료
-    } 
+    }
 
     g_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC); // worker->epoll 깨우기용 eventfd
     if (g_wake_fd < 0)
@@ -645,7 +649,7 @@ int main(int argc, char **argv)
         safe_close(epfd);                                           // close
         safe_close(listen_fd);                                      // close
         return 1;                                                   // 종료
-    } 
+    }
 
     epoll_event ev;                                 // epoll 이벤트
     memset(&ev, 0, sizeof(ev));                     // 0 초기화
@@ -694,7 +698,7 @@ int main(int argc, char **argv)
                 continue;                                                  // 시그널이면 재시도
             std::cerr << "epoll_wait failed: " << strerror(errno) << "\n"; // 로그
             break;                                                         // 탈출
-        } 
+        }
 
         for (int i = 0; i < n; ++i)
         {                               // 이벤트 순회
@@ -726,7 +730,7 @@ int main(int argc, char **argv)
                         safe_close(s.sock);      // close
                         sessions.erase(rt.sock); // 세션 제거
                         continue;                // 다음
-                    } 
+                    }
 
                     uint32_t net_len = htonl(len);                                           // 네트워크 바이트 변환
                     s.write_buf.append(reinterpret_cast<char *>(&net_len), sizeof(net_len)); // 길이 추가
@@ -755,7 +759,7 @@ int main(int argc, char **argv)
                             break;                                                 // 더 이상 없음
                         std::cerr << "accept failed: " << strerror(errno) << "\n"; // 로그
                         break;                                                     // 탈출
-                    } 
+                    }
 
                     set_nonblocking(cfd); // 클라 소켓 논블로킹
 
@@ -784,7 +788,7 @@ int main(int argc, char **argv)
             if (sit == sessions.end())
             {             // 없으면
                 continue; // 무시
-            } 
+            }
 
             Session &s = sit->second; // 세션 참조
 
@@ -880,9 +884,9 @@ int main(int argc, char **argv)
                             safe_close(fd);     // close
                             sessions.erase(fd); // 제거
                             continue;           // 다음
-                        } 
+                        }
                     } // else 끝
-                } 
+                }
 
                 if (s.write_buf.empty())
                 {                                             // 다 보냈으면
@@ -891,7 +895,7 @@ int main(int argc, char **argv)
                     mod.events = EPOLLIN;                     // 다시 읽기만
                     mod.data.fd = fd;                         // 대상 fd
                     epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &mod); // epoll mod
-                } 
+                }
             } // EPOLLOUT 처리 끝
         } // for 끝
     } // while 끝
@@ -899,11 +903,13 @@ int main(int argc, char **argv)
     g_running = false;     // 종료 플래그 내리기
     g_req_cv.notify_all(); // worker 깨우기
 
-    for (auto& th : workers) {                     // 생성한 워커 스레드들 순회
-        if (th.joinable()) {                       // join 가능한지 확인
-            th.join();                             // 스레드 join
-        }                                          
-    }                                              
+    for (auto &th : workers)
+    { // 생성한 워커 스레드들 순회
+        if (th.joinable())
+        {              // join 가능한지 확인
+            th.join(); // 스레드 join
+        }
+    }
     for (auto &kv : sessions)
     {                               // 남은 세션 정리
         safe_close(kv.second.sock); // close

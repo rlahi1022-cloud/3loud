@@ -8,6 +8,7 @@
 #include "protocol_schema.h"
 #include "json_packet.hpp"
 #include "sha256.h"
+#include "file_client.hpp"
 #include <iostream>
 #include <string>
 #include <limits>
@@ -289,6 +290,15 @@ bool handle_login(int sock)
 
     if (code == VALUE_SUCCESS)
     {
+        // [수정] 서버가 보낸 payload에서 user_no를 꺼내 전역 변수에 저장
+        if (res.contains("payload"))
+        {
+            json payload = res["payload"];
+            // 서버가 보낸 "user_no" 값을 읽어서 g_user_no에 저장
+            // (만약 user_no가 없으면 0으로 설정)
+            g_user_no = payload.value("user_no", (uint32_t)0);
+        }
+
         cout << ">> [로그인 성공] " << msg << endl;
         wait_for_enter();
         return true;
