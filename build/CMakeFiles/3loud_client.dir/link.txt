@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/3loud_client.dir/client/skeleton_client.cpp.o CMakeFiles/3loud_client.dir/client/client_net.cpp.o CMakeFiles/3loud_client.dir/client_handle/file_client.cpp.o CMakeFiles/3loud_client.dir/client_handle/client_handlers_stub.cpp.o CMakeFiles/3loud_client.dir/protocol/packet.c.o -o 3loud_client  -lpthread 

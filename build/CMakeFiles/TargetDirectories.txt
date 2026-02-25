@@ -1,4 +1,0 @@
-/home/lms/바탕화면/3loud12/build/CMakeFiles/3loud_server.dir
-/home/lms/바탕화면/3loud12/build/CMakeFiles/3loud_client.dir
-/home/lms/바탕화면/3loud12/build/CMakeFiles/edit_cache.dir
-/home/lms/바탕화면/3loud12/build/CMakeFiles/rebuild_cache.dir
