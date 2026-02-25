@@ -6,7 +6,7 @@
 #include <nlohmann/json.hpp>                                                        // nlohmann json
 #include "packet.h"                                                                 // C 공용 length-prefix 송수신 모듈
 #include "json_packet.hpp"                                                          // JSON 기본 템플릿(기본값/공통필드)
-#include "client_messagehandler.cpp"                                                   // 메시지 핸들러 구현
+#include "client_messagehandler.hpp"                                                   // 메시지 핸들러 구현
 
 
 using json = nlohmann::json;                                                        // json 별칭
