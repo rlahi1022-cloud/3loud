@@ -540,5 +540,5 @@ void handle_logout(int sock) { cout << ">> 로그아웃 완료\n"; }
 // void handle_file_list(int sock) { cout << ">> [미구현] 파일 목록\n"; }
 // void handle_file_upload(int sock) { cout << ">> [미구현] 파일 업로드\n"; }
 // void handle_file_download(int sock) { cout << ">> [미구현] 파일 다운로드\n"; }
-void handle_message_menu(int sock) { cout << ">> [미구현] 메시지 메뉴\n"; }
+// void handle_message_menu(int sock) { cout << ">> [미구현] 메시지 메뉴\n"; }
 void handle_profile_menu(int sock) { cout << ">> [미구현] 프로필 메뉴\n"; }

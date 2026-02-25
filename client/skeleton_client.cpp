@@ -28,6 +28,7 @@
 #include <fcntl.h>     // 파일 제어 옵션
 #include <cstring>     // memset
 #include "protocol.h"
+#include "client_handlers.h"
 
 using json = nlohmann::json; // json 별칭
 

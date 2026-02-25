@@ -31,7 +31,7 @@
 #include "server.h"
 #include "protocol.h"
 #include "protocol_schema.h"
-
+#include "message_handler.hpp"
 extern "C"
 {                   // C 모듈을 C 링크로 사용
 #include "packet.h" // length-prefix send/recv 공용 모듈
