@@ -11,8 +11,7 @@
 // ============================================================================
 
 #include "file_handler.hpp"
-#include "../protocol/protocal.h"
-
+#include "../protocol/protocol.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

@@ -19,7 +19,7 @@
 #include "tui.hpp"
 #include "../client/client_net.hpp"
 #include "../protocol/json_packet.hpp"
-#include "../protocol/protocal.h"
+#include "../protocol/protocol.h"
 
 #include <iostream>
 #include <fstream>

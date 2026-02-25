@@ -5,6 +5,7 @@
 #include "client_handlers.h"
 #include "client_net.hpp"
 #include "protocol.h"
+#include "protocol_schema.h"
 #include "json_packet.hpp"
 #include "sha256.h"
 #include <iostream>
@@ -179,13 +180,8 @@ static string get_input_with_timer(const string &prompt, int limit_seconds)
         // ret == 0 이면 입력 없음 (루프 돌면서 시간만 갱신)
     }
 
-    // 5. 터미널 설정 원상 복구 (매우 중요!)
+    // 5. 터미널 설정 원상 복구
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-
-    if (input.empty())
-    {
-        cout << "\n>> [시간 초과] 인증 시간이 만료되었습니다.\n";
-    }
 
     return input;
 }
@@ -267,12 +263,8 @@ bool handle_login(int sock)
     // 3. 비밀번호 해싱 (서버와 동일한 알고리즘 필수)
     string hashed_pw = sha256(pw);
 
-    // 4. 요청 패킷 생성
-    json req = make_request(PKT_AUTH_LOGIN_REQ);
-    req["payload"] = {
-        {"email", email},
-        {"pw_hash", hashed_pw} // 서버 코드에서 수정한 키 이름(pw_hash)과 일치해야 함
-    };
+    // 4.스키마를 이용해 요청 패킷 생성
+    json req = AuthSchema::make_login_req(PKT_AUTH_LOGIN_REQ, email, hashed_pw);
 
     // 5. 서버 전송 (수정: 실패 시 메시지 + 대기)
     if (!send_json(sock, req))
@@ -408,11 +400,8 @@ void handle_signup(int sock)
 
     string hashed_pw = sha256(pw); // 해싱
 
-    json req = make_request(PKT_AUTH_REGISTER_REQ);
-    req["payload"] = {
-        {"email", email},
-        {"pw", hashed_pw},
-        {"nickname", nickname}};
+    // 서버로 통신
+    json req = AuthSchema::make_signup_req(PKT_AUTH_REGISTER_REQ, email, hashed_pw, nickname);
 
     if (!send_json(sock, req))
     {
@@ -505,6 +494,15 @@ void handle_signup(int sock)
             wait_for_enter();
             return; // 성공했으니 함수 완전 종료
         }
+
+        else if (res["code"] == VALUE_ERR_SESSION)
+        {
+            // [추가] 중요: 세션 만료 에러가 오면 재시도하지 말고 즉시 종료
+            cout << "\n>> [실패] " << res.value("msg", "세션이 만료되었습니다.") << endl;
+            wait_for_enter();
+            return;
+        }
+
         else
         {
             // 실패 시 메시지 출력 및 남은 횟수 안내
@@ -529,8 +527,8 @@ void handle_signup(int sock)
 // [핸들러 3] 기타 기능 (스텁)
 // ============================================================================
 void handle_logout(int sock) { cout << ">> 로그아웃 완료\n"; }
-void handle_file_list(int sock) { cout << ">> [미구현] 파일 목록\n"; }
-void handle_file_upload(int sock) { cout << ">> [미구현] 파일 업로드\n"; }
-void handle_file_download(int sock) { cout << ">> [미구현] 파일 다운로드\n"; }
+// void handle_file_list(int sock) { cout << ">> [미구현] 파일 목록\n"; }
+// void handle_file_upload(int sock) { cout << ">> [미구현] 파일 업로드\n"; }
+// void handle_file_download(int sock) { cout << ">> [미구현] 파일 다운로드\n"; }
 void handle_message_menu(int sock) { cout << ">> [미구현] 메시지 메뉴\n"; }
 void handle_profile_menu(int sock) { cout << ">> [미구현] 프로필 메뉴\n"; }

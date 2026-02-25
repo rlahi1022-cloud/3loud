@@ -31,7 +31,7 @@ inline json make_response(int type, int code)
 // ===============================
 // 안전한 payload 접근
 // ===============================
-inline json get_payload(const json& j)
+inline json get_payload(const json &j)
 {
     return j.value("payload", json::object());
 }
