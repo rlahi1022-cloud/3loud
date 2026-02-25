@@ -12,8 +12,8 @@
 #include "tui.hpp"
 #include "file_client.hpp"               // g_user_no
 #include "../client/client_net.hpp"      // send_json / recv_json
-#include "../protocol/json_packet.hpp"   // make_request
-#include "../protocol/protocal.h"        // PKT_SETTINGS_*, PKT_FILE_LIST_REQ
+#include "json_packet.hpp"   // make_request
+#include "protocol.h"        // PKT_SETTINGS_*, PKT_FILE_LIST_REQ
 
 #include <iostream>
 #include <fstream>
