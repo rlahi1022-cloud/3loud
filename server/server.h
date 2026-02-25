@@ -37,6 +37,10 @@ struct PendingInfo //  대기중인 가입 정보 구조체
 
 static std::map<std::string, PendingInfo> g_pending_map; // Key: Email
 static std::mutex g_pending_m;                           // Mutex
+extern std::unordered_map<std::string, int> g_login_users;
+extern std::unordered_map<int, std::string> g_socket_users;
+extern std::mutex g_login_m;
+extern thread_local int g_current_sock;
 
 // [유틸] 이메일 유효성 검사
 static bool isValidEmail(const std::string &email)

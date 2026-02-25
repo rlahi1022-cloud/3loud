@@ -47,7 +47,7 @@ static constexpr int DEFAULT_PORT = 5010;                // 기본 포트
 static constexpr int LISTEN_BACKLOG = 64;                // listen backlog
 // [추가] Worker가 Main을 깨우기 위해 사용할 전역 파일 디스크립터
 int g_wake_fd = -1;
-
+thread_local int g_current_sock = -1; // 워커 스레드별 현재 처리 소켓 저장
 // 전역 맵과 뮤텍스 정의
 
 // 세션 구조체: epoll 스레드에서만 접근/수정하는 것을 기본 원칙으로 둠
@@ -90,9 +90,9 @@ static std::mutex g_res_m;                // 응답 큐 mutex
 static std::condition_variable g_req_cv;  // worker를 깨우는 CV
 static std::atomic<bool> g_running(true); // 서버 실행 플래그(원자)
 // [추가] 접속 중인 유저 관리 (중복 로그인 방지용)
-static std::unordered_map<std::string, int> g_login_users;  // Email -> Socket
-static std::unordered_map<int, std::string> g_socket_users; // Socket -> Email (연결 종료 시 빠른 삭제용)
-static std::mutex g_login_m;                                // 위 맵들을 보호할 Mutex
+std::unordered_map<std::string, int> g_login_users;  // Email -> Socket
+std::unordered_map<int, std::string> g_socket_users; // Socket -> Email (연결 종료 시 빠른 삭제용)
+std::mutex g_login_m;                                // 위 맵들을 보호할 Mutex
 // [추가] 로그인 실패 횟수 관리
 static std::map<std::string, int> g_fail_counts; // 이메일 -> 실패횟수
 static std::mutex g_fail_m;                      // 실패횟수 맵 보호용
@@ -459,18 +459,18 @@ static std::string handle_auth_login(int client_sock, const json &req, sql::Conn
     }
 }
 
-static std::string handle_msg_send(const json &req, sql::Connection &db)
-{                                                        // 메시지 전송 핸들
-    json payload = req.value("payload", json::object()); // payload
-    std::string to = payload.value("to", "");            // 받는 사람
-    std::string content = payload.value("content", "");  // 내용
-    if (to.empty() || content.empty())
-    {                                                                                            // 필수값 확인
-        return make_resp(VALUE_ERR_INVALID_PACKET, -1, "필수 필드 누락", json::object()).dump(); // 에러
-    }
-    // DB INSERT messages 구현                                                  // 구현 안내
-    return make_resp(VALUE_SUCCESS, 0, "msg_send placeholder", json::object()).dump(); // 임시 성공
-} // 함수 끝
+// static std::string handle_msg_send(const json &req, sql::Connection &db)
+// {                                                        // 메시지 전송 핸들
+//     json payload = req.value("payload", json::object()); // payload
+//     std::string to = payload.value("to", "");            // 받는 사람
+//     std::string content = payload.value("content", "");  // 내용
+//     if (to.empty() || content.empty())
+//     {                                                                                            // 필수값 확인
+//         return make_resp(VALUE_ERR_INVALID_PACKET, -1, "필수 필드 누락", json::object()).dump(); // 에러
+//     }
+//     // DB INSERT messages 구현                                                  // 구현 안내
+//     return make_resp(VALUE_SUCCESS, 0, "msg_send placeholder", json::object()).dump(); // 임시 성공
+// } // 함수 끝
 
 // ============================================================================
 // Worker Thread: 요청 처리 담당 (DB 연결은 여기서 생성해서 전용으로 사용)
@@ -510,6 +510,7 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 break;              // 종료면 탈출
             task = g_req_q.front(); // 큐 front 복사
             g_req_q.pop();          // 큐 pop
+            g_current_sock = task.sock; // ★ 현재 요청 처리 소켓 등록
         } // lock 블록 끝
 
         std::string out_payload; // 응답 payload 문자열
@@ -517,7 +518,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
         try
         {                                         // try 시작
             json req = json::parse(task.payload); // JSON 파싱
-            int type = req.value("type", 0);      // type 방어 파싱
+            std::cout << "[DEBUG] packet arrived raw=" << task.payload << std::endl;
+            type = req.value("type", 0);      // type 방어 파싱
+            std::cout << "[DEBUG] type=" << type << std::endl;
             switch (type)
             {                                                     // 1단계:가입요청(메일발송)                                    // type 분기
             case PKT_AUTH_REGISTER_REQ:                           // 회원가입
@@ -551,10 +554,6 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
 
             case PKT_FILE_LIST_REQ:
                 out_payload = handle_file_list_req(req, *conn);
-                break;
-                
-            case PKT_MSG_SEND_REQ:
-                out_payload = handle_msg_send(req, *conn);
                 break;
 
             case PKT_MSG_LIST_REQ:

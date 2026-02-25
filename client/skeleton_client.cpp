@@ -2,16 +2,20 @@
 // 파일명: client_main.cpp                                                       // 파일명
 // 목적: UI는 유지 + Length-Prefix 통신 + 기능은 핸들러로만 호출하는 실행부 뼈대  // 목적
 // ============================================================================ 
-
 #include <iostream>    // 표준 입출력
 #include <string>      // 문자열
 #include <limits>      // numeric_limits
 #include <arpa/inet.h> // inet_pton, sockaddr_in
 #include <unistd.h>    // close
 #include <nlohmann/json.hpp>
-#include "packet.h"                                                                 // C 공용 length-prefix 송수신 모듈
-#include "json_packet.hpp"                                                          // JSON 기본 템플릿(기본값/공통필드)
-#include "client_handlers.h"
+
+using json = nlohmann::json;
+
+extern "C"
+{
+    #include "packet.h"
+}              
+#include "json_packet.hpp"                                                          // JSON 기본 
 #include "../client_handle/file_client.hpp"                                         // 팀원들이 구현할 핸들러 선언
 #include "../client_handle/tui.hpp"                                                 // 방향키 TUI
 #include "protocol_schema.h"                                                        // 스키마
@@ -29,15 +33,15 @@
 #include <cstring>     // memset
 #include "protocol.h"
 #include "client_handlers.h"
-
-using json = nlohmann::json; // json 별칭
-
-static const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
+#include "client_messagehandler.hpp"
+const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
 static const int SERVER_PORT = 5010;        // 서버 포트(프로젝트 값으로 맞추기)
+
+std::string g_current_user_email;
 
 // ============================================================================ // 콘솔 입력 버퍼 정리 유틸
 // ============================================================================ 
-static void clear_stdin_line()                                          // cin 잔여 입력 제거 함수
+void clear_stdin_line()                                          // cin 잔여 입력 제거 함수
 {                                                                       // 함수 시작
     std::cin.clear();                                                   // 입력 스트림 오류 상태 초기화
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // 한 줄 끝까지 버림

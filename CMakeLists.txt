@@ -1,12 +1,16 @@
 cmake_minimum_required(VERSION 3.10)
 project(3loud)
 
-# C++ 표준 설정
+# ==========================================================
+# 1. C/C++ 표준
+# ==========================================================
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_STANDARD 99)
 
-# 헤더 경로 포함
+# ==========================================================
+# 2. Include 경로
+# ==========================================================
 include_directories(
     ${CMAKE_SOURCE_DIR}/protocol
     ${CMAKE_SOURCE_DIR}/client
@@ -15,58 +19,69 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/server_handle
 )
 
-# ==========================================
-# 1. 필수 패키지 찾기 (Threads, CURL, OpenSSL)
-# ==========================================
+# ==========================================================
+# 3. 필수 패키지
+# ==========================================================
 find_package(Threads REQUIRED)
 find_package(CURL REQUIRED)
-find_package(OpenSSL REQUIRED)  # <--- [추가됨] OpenSSL 찾기
+find_package(OpenSSL REQUIRED)
 
-# ==========================================
-# 2. 라이브러리 빌드 (Protocol)
-# ==========================================
-add_library(protocol_lib
-    protocol/packet.c
-    protocol/packet.h
-    protocol/protocol.h
-    protocol/protocol_schema.h
-    protocol/json_packet.hpp
+# MariaDB C++ Connector
+find_library(MARIADB_CPP_LIB
+    NAMES mariadbcpp
+    PATHS /usr/lib /usr/lib/x86_64-linux-gnu
 )
 
-# ==========================================
-# 3. Server 빌드
-# ==========================================
+find_path(MARIADB_CPP_INCLUDE_DIR
+    NAMES mariadb/conncpp.hpp
+    PATHS /usr/include
+)
+
+if(NOT MARIADB_CPP_LIB OR NOT MARIADB_CPP_INCLUDE_DIR)
+    message(FATAL_ERROR "MariaDB C++ Connector not found")
+endif()
+
+include_directories(${MARIADB_CPP_INCLUDE_DIR})
+
+# ==========================================================
+# 4. Protocol 라이브러리 (공용)
+# ==========================================================
+add_library(protocol_lib
+    protocol/packet.c
+)
+
+# ==========================================================
+# 5. Server 빌드
+# ==========================================================
 add_executable(server_app
     server/skeleton_server.cpp
     server/email.cpp
-    server/server.h
     server_handle/file_handler.cpp
-    server_handle/file_handler.hpp
+    server_handle/message_handler.cpp
 )
 
-# 서버는 DB와 CURL이 필요함
-target_link_libraries(server_app 
-    protocol_lib 
-    Threads::Threads 
+target_link_libraries(server_app
+    protocol_lib
+    Threads::Threads
     ${CURL_LIBRARIES}
-    mariadbcpp
+    ${MARIADB_CPP_LIB}
 )
 
-# ==========================================
-# 4. Client 빌드 (에러 났던 곳)
-# ==========================================
+# ==========================================================
+# 6. Client 빌드
+# ==========================================================
 add_executable(client_app
     client/skeleton_client.cpp
     client/client_net.cpp
     client/client_handlers.cpp
-    client_handle/file_client.cpp
     client_handle/client_handlers_stub.cpp
+    client_handle/file_client.cpp
+    client_handle/client_messagehandler.cpp
 )
 
-# [수정됨] 클라이언트는 OpenSSL(암호화)이 필요함
-target_link_libraries(client_app 
-    protocol_lib 
-    Threads::Threads 
-    OpenSSL::SSL       # <--- [추가됨]
-    OpenSSL::Crypto    # <--- [추가됨]
+target_link_libraries(client_app
+    protocol_lib
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
