@@ -591,11 +591,14 @@ int verify_access_password(int sock)
 
             // ★ 핵심: 서버에 '나 로그아웃 한다'고 알려줘야 '접속 중' 상태가 풀림
             json logout_req = make_request(PKT_AUTH_LOGOUT_REQ);
-            // user_no나 email을 보내야 한다면 payload에 추가 (보통 세션 관리 방식에 따라 다름)
-            // logout_req["user_no"] = g_user_no;
             send_json(sock, logout_req);
 
-            wait_for_enter();
+            // [수정] 중요! 서버가 보내는 "Logged out" 응답을 여기서 받아내야 함.
+            // 안 그러면 다음 로그인 시도 때 이 메시지를 로그인 성공으로 착각함.
+            json dummy_res;
+            recv_json(sock, dummy_res);
+
+            sleep(1);
             return -1; // 강제 로그아웃 신호
         }
         // [상황 3] 단순 비밀번호 틀림

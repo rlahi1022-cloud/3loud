@@ -36,7 +36,7 @@ extern "C"
 #include "client_messagehandler.hpp"
 #include "file_settings.hpp"
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
-static const int SERVER_PORT = 5011;        // 서버 포트(프로젝트 값으로 맞추기)
+static const int SERVER_PORT = 5011; // 서버 포트(프로젝트 값으로 맞추기)
 
 std::string g_current_user_email;
 extern std::string g_msg_prefix;
@@ -52,14 +52,14 @@ void clear_stdin_line()                                                 // cin �
 
 // ============================================================================ // 서버 연결 생성(1회 연결 유지 방식)
 // ============================================================================
-static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
-{                                                                                   // 함수 시작
-    int sock = ::socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
-    if (sock < 0)                                                                   // 생성 실패 체크
-    {                                                                               // if 시작
-        std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
-        return -1;                                                                  // 실패 반환
-    }                                                                               
+static int connect_server_or_die()                // 서버 연결 소켓 생성 함수
+{                                                 // 함수 시작
+    int sock = ::socket(PF_INET, SOCK_STREAM, 0); // TCP 소켓 생성
+    if (sock < 0)                                 // 생성 실패 체크
+    {                                             // if 시작
+        std::cerr << "소켓 생성 실패\n";          // 에러 출력
+        return -1;                                // 실패 반환
+    }
     sockaddr_in serv{};                 // 서버 주소 구조체
     serv.sin_family = AF_INET;          // IPv4
     serv.sin_port = htons(SERVER_PORT); // 포트 네트워크 바이트 오더 변환
@@ -69,14 +69,14 @@ static int connect_server_or_die()                                              
         std::cerr << "IP 변환 실패\n";                      // 에러 출력
         close(sock);                                        // 소켓 닫기
         return -1;                                          // 실패 반환
-    } 
+    }
 
     if (::connect(sock, (sockaddr *)&serv, sizeof(serv)) < 0) // 서버 연결
     {                                                         // if 시작
         std::cerr << "서버 연결 실패\n";                      // 에러 출력
         close(sock);                                          // 소켓 닫기
         return -1;                                            // 실패 반환
-    } 
+    }
 
     std::cout << "===============================================================\n"; // UI 라인
     std::cout << " 서버에 연결되었습니다.\n";                                         // UI 문구
@@ -94,7 +94,7 @@ int main()                              // main 시작
     if (sock < 0)                       // 연결 실패면 종료
     {                                   // if 시작
         return 1;                       // 종료 코드 반환
-    } 
+    }
 
     bool running = true;    // 프로그램 실행 플래그
     bool logged_in = false; // 로그인 상태 플래그
@@ -111,28 +111,28 @@ int main()                              // main 시작
             int choice = tui_menu("3LOUD", {"로그인", "회원가입", "종료"});
 
             if (choice == -1 || choice == 2) // ESC 또는 종료
-            {                    // if 시작
-                running = false; // 전체 종료 플래그 끄기
-                break;           // 로그인 루프 탈출
-            } 
+            {                                // if 시작
+                running = false;             // 전체 종료 플래그 끄기
+                break;                       // 로그인 루프 탈출
+            }
 
-            if (choice == 0) // 로그인 선택
-            {                // if 시작
+            if (choice == 0)                    // 로그인 선택
+            {                                   // if 시작
                 logged_in = handle_login(sock); // 로그인 핸들러 호출
-                continue; // 메뉴 루프 진행
-            } 
+                continue;                       // 메뉴 루프 진행
+            }
 
-            if (choice == 1) // 회원가입 선택
-            {                // if 시작
+            if (choice == 1)         // 회원가입 선택
+            {                        // if 시작
                 handle_signup(sock); // 회원가입 핸들러 호출
-                continue; // 다시 로그인/회원가입 메뉴로
-            } 
+                continue;            // 다시 로그인/회원가입 메뉴로
+            }
         } // 로그인/회원가입 루프 끝
 
         if (!running) // 종료 선택이면 빠져나감
         {             // if 시작
             break;    // 메인 루프 탈출
-        } 
+        }
 
         // ================================================================= // 2) 로그인 후 메인 메뉴 루프
         while (running && logged_in) // 로그인 상태에서만 반복
@@ -147,7 +147,7 @@ int main()                              // main 시작
 
                 if (packet_send(sock, s.c_str(), (uint32_t)s.size()) == 0)
                 {
-                    char*    rbuf = nullptr;
+                    char *rbuf = nullptr;
                     uint32_t rlen = 0;
                     if (packet_recv(sock, &rbuf, &rlen) == 0)
                     {
@@ -160,51 +160,67 @@ int main()                              // main 시작
 
             // 메시지 항목에 [!] 배지 표시
             std::string msg_label = has_unread
-                ? "메시지  \033[33m[!]\033[0m"
-                : "메시지";
+                                        ? "메시지  \033[33m[!]\033[0m"
+                                        : "메시지";
 
             // tui_menu: 0=파일, 1=메시지, 2=개인설정, 3=로그아웃, 4=종료
-            int choice = tui_menu("3LOUD 메인 메뉴", {
-                "파일",
-                msg_label,
-                "환경 설정",
-                "로그 아웃",
-                "프로그램 종료"
-            });
+            int choice = tui_menu("3LOUD 메인 메뉴", {"파일",
+                                                      msg_label,
+                                                      "환경 설정",
+                                                      "로그 아웃",
+                                                      "프로그램 종료"});
 
             if (choice == -1 || choice == 4) // ESC 또는 종료
-            {                    // if 시작
-                running = false; // 전체 종료 플래그
-                break;           // 메인 메뉴 루프 탈출
-            } 
+            {                                // if 시작
+                running = false;             // 전체 종료 플래그
+                break;                       // 메인 메뉴 루프 탈출
+            }
 
             if (choice == 3)         // 로그아웃
             {                        // if 시작
                 handle_logout(sock); // 로그아웃 훅
                 logged_in = false;   // 로그인 상태 해제
                 break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
-            } 
+            }
 
             // ================================================================= // 파일 메뉴
-            if (choice == 0) // 파일 메뉴 선택
-            {                // if 시작
-                bool back = false;                                                  // 뒤로가기 플래그
-                while (!back && running && logged_in)                               // 뒤로가기 전까지 반복
-                {                                                                   // while 시작
-                    int sub = tui_menu("파일 메뉴", {
-                        "파일 목록",
-                        "파일 업로드",
-                        "파일 다운로드",
-                        "파일 삭제",
-                        "뒤로가기"
-                    });
+            if (choice == 0)                          // 파일 메뉴 선택
+            {                                         // if 시작
+                bool back = false;                    // 뒤로가기 플래그
+                while (!back && running && logged_in) // 뒤로가기 전까지 반복
+                {                                     // while 시작
+                    int sub = tui_menu("파일 메뉴", {"파일 목록",
+                                                     "파일 업로드",
+                                                     "파일 다운로드",
+                                                     "파일 삭제",
+                                                     "뒤로가기"});
 
-                    if (sub == -1 || sub == 4) { back = true; continue; }  // ESC or 뒤로가기
-                    if (sub == 0) { handle_file_list(sock);     continue; }
-                    if (sub == 1) { handle_file_upload(sock);   continue; }
-                    if (sub == 2) { handle_file_download(sock); continue; }
-                    if (sub == 3) { handle_file_delete(sock);   continue; }
-                }                    
+                    if (sub == -1 || sub == 4)
+                    {
+                        back = true;
+                        continue;
+                    } // ESC or 뒤로가기
+                    if (sub == 0)
+                    {
+                        handle_file_list(sock);
+                        continue;
+                    }
+                    if (sub == 1)
+                    {
+                        handle_file_upload(sock);
+                        continue;
+                    }
+                    if (sub == 2)
+                    {
+                        handle_file_download(sock);
+                        continue;
+                    }
+                    if (sub == 3)
+                    {
+                        handle_file_delete(sock);
+                        continue;
+                    }
+                }
                 continue; // 메인 메뉴로 복귀
             } // 파일 메뉴 if 끝
 
@@ -213,30 +229,52 @@ int main()                              // main 시작
             {                              // if 시작
                 handle_message_menu(sock); // 메시지 메뉴 핸들러
                 continue;                  // 메인 메뉴로 복귀
-            } 
+            }
 
             // ================================================================= // 개인 설정 메뉴
-            if (choice == 2)               // 개인 설정 메뉴 선택
-            {                              // if 시작
-                bool back = false;                                                 // 뒤로가기 플래그
-                while (!back && running && logged_in)                              // 로그인 상태에서 반복
+            if (choice == 2)                          // 개인 설정 메뉴 선택
+            {                                         // if 시작
+                bool back = false;                    // 뒤로가기 플래그
+                while (!back && running && logged_in) // 로그인 상태에서 반복
                 {
-                    int sub = tui_menu("환경설정", {
-                        "개인 설정",
-                        "파일 설정",
-                        "메시지 설정",
-                        "뒤로가기"
-                    });
+                    int sub = tui_menu("환경설정", {"개인 설정",
+                                                    "파일 설정",
+                                                    "메시지 설정",
+                                                    "뒤로가기"});
 
-                    if (sub == -1 || sub == 3) { back = true; continue; }  // ESC 또는 뒤로가기
-                    if (sub == 0) { handle_profile_menu(sock);     continue; }
-                    if (sub == 1) { handle_file_settings_menu(sock);  continue; }
-                    if (sub == 2) { handle_message_settings(sock);  continue; }
+                    if (sub == -1 || sub == 3)
+                    {
+                        back = true;
+                        continue;
+                    } // ESC 또는 뒤로가기
+                    if (sub == 0)
+                    {
+                        bool keep_login = handle_profile_menu(sock);
+                        if (!keep_login)
+                        {
+                            // [수정] 강제 로그아웃 처리: 로그인 상태 해제
+                            logged_in = false;
+                            std::cout << ">> [Client] 로그인 화면으로 이동합니다.\n";
+                            sleep(1); // 사용자 확인 대기 (선택 사항)
+                            break;    // 이제 while(running && logged_in)을 탈출하여 로그인 루프로 이동
+                        }
+                        continue;
+                    }
+                    if (sub == 1)
+                    {
+                        handle_file_settings_menu(sock);
+                        continue;
+                    }
+                    if (sub == 2)
+                    {
+                        handle_message_settings(sock);
+                        continue;
+                    }
                 }
-                continue;  
-            } 
-        } 
-    } 
+                continue;
+            }
+        }
+    }
     close(sock); // 소켓 종료
     return 0;    // 종료 코드
 } // main 끝

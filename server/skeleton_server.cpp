@@ -532,15 +532,15 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 // 2단계: 인증번호 검증 (DB 저장)
             case PKT_AUTH_VERIFY_REQ:
                 out_payload = handle_auth_verify_req(req, *conn);
-                break;        
+                break;
 
             case PKT_AUTH_LOGIN_REQ:                                    // 로그인
                 out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
-                break;                                                  
-                
-            case PKT_MSG_SEND_REQ:                                      // 메시지 전송
-                out_payload = handle_msg_send(req, *conn);              // 핸들 호출
-                break;                                                  
+                break;
+
+            case PKT_MSG_SEND_REQ:                         // 메시지 전송
+                out_payload = handle_msg_send(req, *conn); // 핸들 호출
+                break;
 
             case PKT_FILE_UPLOAD_REQ:
                 out_payload = handle_file_upload_req(req, *conn);
@@ -588,20 +588,28 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_MSG_SETTING_UPDATE_REQ:
                 out_payload = handle_msg_setting_update(req, *conn);
                 break;
-                
+
             case PKT_SETTINGS_VERIFY_REQ:
                 out_payload = handle_settings_verify_req(req, *conn);
                 break;
 
+            case PKT_AUTH_LOGOUT_REQ:
+            {
+                // Task 구조체에 있는 sock 정보를 이용하여 로그아웃 처리
+                logout_unregister(task.sock);
+                out_payload = make_resp(PKT_AUTH_LOGOUT_REQ, VALUE_SUCCESS, "Logged out", json::object()).dump();
+                std::cout << "[Worker] User requested logout. Session cleared for socket " << task.sock << "\n";
+                break;
+            }
             default:
             {                                                                                          // 알 수 없는 타입
                 out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
-                break;                                                                                 
+                break;
             } // default 블록 끝
             } // switch 끝
         }
         catch (const std::exception &e)
-        {                                                 
+        {
             out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, std::string("Exception: ") + e.what(), json::object()).dump(); // 에러 응답
         } // try-catch 끝
 
