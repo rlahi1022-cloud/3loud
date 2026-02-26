@@ -1,7 +1,7 @@
-// ============================================================================ 
+// ============================================================================
 // 파일명: client_main.cpp                                                       // 파일명
 // 목적: UI는 유지 + Length-Prefix 통신 + 기능은 핸들러로만 호출하는 실행부 뼈대  // 목적
-// ============================================================================ 
+// ============================================================================
 #include <iostream>    // 표준 입출력
 #include <string>      // 문자열
 #include <limits>      // numeric_limits
@@ -16,27 +16,28 @@ using json = nlohmann::json;
 
 extern "C"
 {
-    #include "packet.h"
-}              
-#include "json_packet.hpp"                                                          // JSON 기본 
-#include "../client_handle/file_client.hpp"                                         // 팀원들이 구현할 핸들러 선언
-#include "../client_handle/tui.hpp"                                                 // 방향키 TUI
-#include "protocol_schema.h"                                                        // 스키마
-#include "sha256.h"                                                                // SHA256 해싱
-#include "client_net.hpp"                                                        // 소켓 연결 및 송수신 함수
-#include <iomanip>      // setfill, setw (시간 포맷팅용)
-#include <sys/select.h> // select()
-#include <sys/time.h>   // timeval
-#include <termios.h>    // 터미널 제어
-#include <stdio.h>     // getchar()
-#include <sys/ioctl.h>  // ioctl()로 터미널 크기 가져오기
-#include <sys/types.h> // select() 관련
-#include <sys/stat.h>  // 파일 상태 검사
-#include <fcntl.h>     // 파일 제어 옵션
-#include <cstring>     // memset
+#include "packet.h"
+}
+#include "json_packet.hpp"                  // JSON 기본
+#include "../client_handle/file_client.hpp" // 팀원들이 구현할 핸들러 선언
+#include "../client_handle/tui.hpp"         // 방향키 TUI
+#include "protocol_schema.h"                // 스키마
+#include "sha256.h"                         // SHA256 해싱
+#include "client_net.hpp"                   // 소켓 연결 및 송수신 함수
+#include <iomanip>                          // setfill, setw (시간 포맷팅용)
+#include <sys/select.h>                     // select()
+#include <sys/time.h>                       // timeval
+#include <termios.h>                        // 터미널 제어
+#include <stdio.h>                          // getchar()
+#include <sys/ioctl.h>                      // ioctl()로 터미널 크기 가져오기
+#include <sys/types.h>                      // select() 관련
+#include <sys/stat.h>                       // 파일 상태 검사
+#include <fcntl.h>                          // 파일 제어 옵션
+#include <cstring>                          // memset
 #include "protocol.h"
 #include "client_handlers.h"
 #include "client_messagehandler.hpp"
+#include "file_settings.hpp"
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
 static const int SERVER_PORT = 5011;        // 서버 포트(프로젝트 값으로 맞추기)
 
@@ -143,8 +144,7 @@ void clear_stdin_line()                                          // cin 잔여 �
 } // 함수 끝
 
 // ============================================================================ // 서버 연결 생성(1회 연결 유지 방식)
-// ============================================================================ 
-
+// ============================================================================
 static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
 {                                                                                   // 함수 시작
     int sock = ::socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
@@ -152,26 +152,24 @@ static int connect_server_or_die()                                              
     {                                                                               // if 시작
         std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
         return -1;                                                                  // 실패 반환
-    }                                                                               // if 끝
-
+    }                                                                               
     sockaddr_in serv{};                 // 서버 주소 구조체
     serv.sin_family = AF_INET;          // IPv4
     serv.sin_port = htons(SERVER_PORT); // 포트 네트워크 바이트 오더 변환
-
 
     if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1) // IP 변환 실패 체크
     {                                                       // if 시작
         std::cerr << "IP 변환 실패\n";                      // 에러 출력
         close(sock);                                        // 소켓 닫기
         return -1;                                          // 실패 반환
-    } // if 끝
+    } 
 
     if (::connect(sock, (sockaddr *)&serv, sizeof(serv)) < 0) // 서버 연결
     {                                                         // if 시작
         std::cerr << "서버 연결 실패\n";                      // 에러 출력
         close(sock);                                          // 소켓 닫기
         return -1;                                            // 실패 반환
-    } // if 끝
+    } 
 
     std::cout << "===============================================================\n"; // UI 라인
     std::cout << " 서버에 연결되었습니다.\n";                                         // UI 문구
@@ -181,7 +179,7 @@ static int connect_server_or_die()                                              
 } // 함수 끝
 
 // ============================================================================ // 프로그램 진입점
-// ============================================================================ 
+// ============================================================================
 
 int main()                              // main 시작
 {                                       // 블록 시작
@@ -189,7 +187,7 @@ int main()                              // main 시작
     if (sock < 0)                       // 연결 실패면 종료
     {                                   // if 시작
         return 1;                       // 종료 코드 반환
-    } // if 끝
+    } 
 
     bool running = true;    // 프로그램 실행 플래그
     bool logged_in = false; // 로그인 상태 플래그
@@ -209,7 +207,7 @@ int main()                              // main 시작
             {                    // if 시작
                 running = false; // 전체 종료 플래그 끄기
                 break;           // 로그인 루프 탈출
-            } // if 끝
+            } 
 
             if (choice == 0) // 로그인 선택
             {                // if 시작
@@ -219,19 +217,19 @@ int main()                              // main 시작
                     start_poll_thread();      // 실시간 폴링 시작 (요구사항 9)
                 }
                 continue; // 메뉴 루프 진행
-            } // if 끝
+            } 
 
             if (choice == 1) // 회원가입 선택
             {                // if 시작
                 handle_signup(sock); // 회원가입 핸들러 호출
                 continue; // 다시 로그인/회원가입 메뉴로
-            } // if 끝
+            } 
         } // 로그인/회원가입 루프 끝
 
         if (!running) // 종료 선택이면 빠져나감
         {             // if 시작
             break;    // 메인 루프 탈출
-        } // if 끝
+        } 
 
         // ================================================================= // 2) 로그인 후 메인 메뉴 루프
         while (running && logged_in) // 로그인 상태에서만 반복
@@ -253,7 +251,7 @@ int main()                              // main 시작
                 stop_poll_thread(); // 폴링 중단
                 running = false; // 전체 종료 플래그
                 break;           // 메인 메뉴 루프 탈출
-            } // if 끝
+            } 
 
             if (choice == 3)         // 로그아웃
             {                        // if 시작
@@ -261,7 +259,7 @@ int main()                              // main 시작
                 stop_poll_thread();  // 폴링 중단
                 logged_in = false;   // 로그인 상태 해제
                 break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
-            } // if 끝
+            } 
 
             // ================================================================= // 파일 메뉴
             if (choice == 0) // 파일 메뉴 선택
@@ -282,8 +280,7 @@ int main()                              // main 시작
                     if (sub == 1) { handle_file_upload(sock);   continue; }
                     if (sub == 2) { handle_file_download(sock); continue; }
                     if (sub == 3) { handle_file_delete(sock);   continue; }
-                }                                                                   // 파일 서브메뉴 루프 끝
-
+                }                    
                 continue; // 메인 메뉴로 복귀
             } // 파일 메뉴 if 끝
 
@@ -292,18 +289,30 @@ int main()                              // main 시작
             {                              // if 시작
                 handle_message_menu(sock); // 메시지 메뉴 핸들러
                 continue;                  // 메인 메뉴로 복귀
-            } // if 끝
+            } 
 
             // ================================================================= // 개인 설정 메뉴
             if (choice == 2)               // 개인 설정 메뉴 선택
             {                              // if 시작
-                handle_profile_menu(sock); // 개인설정 핸들러
-                continue;                  // 메인 메뉴로 복귀
-            } // if 끝
-        } // 로그인 후 메인 메뉴 루프 끝
-    } // 메인 루프 끝
+                bool back = false;                                                 // 뒤로가기 플래그
+                while (!back && running && logged_in)                              // 로그인 상태에서 반복
+                {
+                    int sub = tui_menu("환경설정", {
+                        "개인 설정",
+                        "파일 설정",
+                        "메시지 설정",
+                        "뒤로가기"
+                    });
 
+                    if (sub == -1 || sub == 3) { back = true; continue; }  // ESC 또는 뒤로가기
+                    if (sub == 0) { handle_profile_menu(sock);     continue; }
+                    if (sub == 1) { handle_file_settings_menu(sock);  continue; }
+                    if (sub == 2) { handle_message_settings(sock);  continue; }
+                }
+                continue;  
+            } 
+        } 
+    } 
     close(sock); // 소켓 종료
     return 0;    // 종료 코드
 } // main 끝
-
