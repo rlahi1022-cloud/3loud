@@ -482,7 +482,7 @@ void handle_blacklist_menu(int sock)
 
         if (sel == -1 || sel == 3) return;   // ESC 또는 뒤로가기
 
-        if (sel == 0) { handle_blacklist_list(sock); }
+        if (sel == 0) { handle_blacklist_list(sock); continue; }
         if (sel == 1) { handle_blacklist_add(sock); }
         if (sel == 2) { handle_blacklist_remove(sock); }
     }

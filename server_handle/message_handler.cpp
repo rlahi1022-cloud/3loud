@@ -48,27 +48,49 @@ static unsigned int get_user_no(sql::Connection& db,
 // 내부 헬퍼: 블랙리스트 체크
 //   수신자(receiver_no)가 송신자(sender_email)를 차단했는지
 // ──────────────────────────────────────────────
-static bool is_blacklisted(sql::Connection& db,
-                            unsigned int receiver_no,
-                            const std::string& sender_email)
+// ──────────────────────────────────────────────  // 구분 주석
+// 내부 헬퍼: 블랙리스트 체크 (시그니처 유지, 내부만 이메일 기반으로 정합)         // 설명
+// receiver_no(=users.no) -> owner_email(users.email) 변환 후 blacklist(owner_email) 조회 // 설명
+// ──────────────────────────────────────────────  // 구분 주석
+static bool is_blacklisted(sql::Connection& db,                                    // DB 커넥션
+                           unsigned int receiver_no,                               // 수신자 user_no (시그니처 유지)
+                           const std::string& sender_email)                        // 송신자 이메일
 {
-    try
+    try                                                                             // 예외 보호
     {
-        std::unique_ptr<sql::PreparedStatement> ps(
-            db.prepareStatement(
-                "SELECT 1 FROM blacklist "
-                "WHERE owner_user_id = ? AND blocked_email = ? LIMIT 1"
+        // 1) receiver_no -> receiver_email 변환                                    // 변환 설명
+        std::unique_ptr<sql::PreparedStatement> ps_owner(                           // owner 조회 statement
+            db.prepareStatement(                                                    // SQL 준비
+                "SELECT email FROM users WHERE no = ? LIMIT 1"                      // user_no -> email
             )
         );
-        ps->setUInt  (1, receiver_no);
-        ps->setString(2, sender_email);
-        std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
-        return rs->next();
+        ps_owner->setUInt(1, receiver_no);                                          // receiver_no 바인딩
+        std::unique_ptr<sql::ResultSet> rs_owner(ps_owner->executeQuery());         // 실행
+
+        if (!rs_owner->next())                                                      // 사용자가 없으면
+        {
+            return false;                                                           // 차단 없음 처리
+        }
+
+        std::string owner_email = rs_owner->getString("email").c_str();             // owner_email 확보
+
+        // 2) blacklist(owner_email, blocked_email) 조회                             // 조회 설명
+        std::unique_ptr<sql::PreparedStatement> ps(                                 // blacklist 조회 statement
+            db.prepareStatement(                                                    // SQL 준비
+                "SELECT 1 FROM blacklist "                                          // 존재 체크
+                "WHERE owner_email = ? AND blocked_email = ? "                      // 조건
+                "LIMIT 1"                                                           // 1개면 충분
+            )
+        );
+        ps->setString(1, owner_email);                                               // owner_email 바인딩
+        ps->setString(2, sender_email);                                              // blocked_email 바인딩
+        std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());                      // 실행
+
+        return rs->next();                                                          // 있으면 true
     }
-    catch (...)
+    catch (...)                                                                      // 예외 시
     {
-        // blacklist 테이블 미생성 등 예외 시 차단 없음으로 처리
-        return false;
+        return false;                                                                // 안전하게 차단 없음 처리
     }
 }
 
@@ -266,6 +288,7 @@ std::string handle_msg_list(const json& req, sql::Connection& db)
 {
     try
     {
+        // 1. 세션 확인
         std::string user_email = get_session_email(g_current_sock);
         if (user_email.empty())
         {
@@ -274,31 +297,32 @@ std::string handle_msg_list(const json& req, sql::Connection& db)
             return res.dump();
         }
 
-        unsigned int user_no = get_user_no(db, user_email);
-        if (user_no == 0)
-        {
-            json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_DB);
-            res["msg"] = "사용자 정보 없음";
-            return res.dump();
-        }
-
+        // 2. page 처리
         json payload = get_payload(req);
         int page = payload.value("page", 0);
         if (page < 0) page = 0;
         int offset = page * 20;
 
+        // 3. 블랙리스트 필터 포함 조회
         std::unique_ptr<sql::PreparedStatement> pstmt(
             db.prepareStatement(
                 "SELECT msg_id, from_email, content, is_read, "
                 "DATE_FORMAT(sent_at, '%Y-%m-%d %H:%i:%s') AS sent_at "
-                "FROM messages "
-                "WHERE to_email = ? "
-                "ORDER BY sent_at DESC "
+                "FROM messages m "
+                "WHERE m.to_email = ? "
+                "AND NOT EXISTS ( "
+                "    SELECT 1 FROM blacklist b "
+                "    WHERE b.owner_email = ? "
+                "    AND b.blocked_email = m.from_email "
+                ") "
+                "ORDER BY m.sent_at DESC "
                 "LIMIT 20 OFFSET ?"
             )
         );
-        pstmt->setString(1, user_email);
-        pstmt->setInt (2, offset);
+
+        pstmt->setString(1, user_email);  // to_email
+        pstmt->setString(2, user_email);  // owner_email (블랙리스트 주인)
+        pstmt->setInt   (3, offset);      // 페이지 offset
 
         std::unique_ptr<sql::ResultSet> rs(pstmt->executeQuery());
 
@@ -326,6 +350,7 @@ std::string handle_msg_list(const json& req, sql::Connection& db)
             {"has_unread", has_unread},
             {"page",       page}
         };
+
         return res.dump();
     }
     catch (const sql::SQLException& e)
@@ -341,7 +366,6 @@ std::string handle_msg_list(const json& req, sql::Connection& db)
         return res.dump();
     }
 }
-
 // ============================================================
 // handle_msg_delete  (PKT_MSG_DELETE_REQ = 0x0013)
 //
