@@ -14,6 +14,7 @@ void handle_file_list(int sock); //
 void handle_file_upload(int sock);
 void handle_file_download(int sock);
 void handle_message_menu(int sock);
-void handle_profile_menu(int sock);
+int verify_access_password(int sock); // 개인설정 - 비밀번호 인증용
+bool handle_profile_menu(int sock);   // 개인설정
 
 #endif

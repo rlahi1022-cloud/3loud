@@ -32,6 +32,8 @@
 #include "protocol.h"
 #include "protocol_schema.h"
 #include "message_handler.hpp"
+#include "setting_handler.hpp"
+
 extern "C"
 {                   // C 모듈을 C 링크로 사용
 #include "packet.h" // length-prefix send/recv 공용 모듈
@@ -94,8 +96,8 @@ std::unordered_map<std::string, int> g_login_users;  // Email -> Socket
 std::unordered_map<int, std::string> g_socket_users; // Socket -> Email (연결 종료 시 빠른 삭제용)
 std::mutex g_login_m;                                // 위 맵들을 보호할 Mutex
 // [추가] 로그인 실패 횟수 관리
-static std::map<std::string, int> g_fail_counts; // 이메일 -> 실패횟수
-static std::mutex g_fail_m;                      // 실패횟수 맵 보호용
+std::map<std::string, int> g_fail_counts; // 이메일 -> 실패횟수
+std::mutex g_fail_m;                      // 실패횟수 맵 보호용
 
 // ============================================================================
 // 유틸: non-blocking 설정
@@ -507,9 +509,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 return !g_req_q.empty() || !g_running.load(); // 큐가 있거나 종료면 깸
             });                                               // wait 끝
             if (!g_running.load())
-                break;              // 종료면 탈출
-            task = g_req_q.front(); // 큐 front 복사
-            g_req_q.pop();          // 큐 pop
+                break;                  // 종료면 탈출
+            task = g_req_q.front();     // 큐 front 복사
+            g_req_q.pop();              // 큐 pop
             g_current_sock = task.sock; // ★ 현재 요청 처리 소켓 등록
         } // lock 블록 끝
 
@@ -518,9 +520,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
         try
         {                                         // try 시작
             json req = json::parse(task.payload); // JSON 파싱
-            std::cout << "[DEBUG] packet arrived raw=" << task.payload << std::endl;
-            type = req.value("type", 0);      // type 방어 파싱
-            std::cout << "[DEBUG] type=" << type << std::endl;
+            // std::cout << "[DEBUG] packet arrived raw=" << task.payload << std::endl;
+            type = req.value("type", 0); // type 방어 파싱
+            // std::cout << "[DEBUG] type=" << type << std::endl;
             switch (type)
             {                                                     // 1단계:가입요청(메일발송)                                    // type 분기
             case PKT_AUTH_REGISTER_REQ:                           // 회원가입
@@ -558,6 +560,13 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
 
             case PKT_MSG_LIST_REQ:
                 out_payload = handle_msg_list(req, *conn);
+                break;
+            case PKT_SETTINGS_VERIFY_REQ:
+                out_payload = handle_settings_verify_req(req, *conn);
+                break;
+            case PKT_SETTINGS_SET_REQ:
+                // setting_handler.hpp 에 이 함수가 구현되어 있어야 합니다.
+                out_payload = handle_settings_set_req(req, *conn);
                 break;
             default:
             {                                                                                          // 알 수 없는 타입

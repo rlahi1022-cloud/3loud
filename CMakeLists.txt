@@ -92,6 +92,7 @@ add_executable(server_app
     server/email.cpp
     server_handle/file_handler.cpp
     server_handle/message_handler.cpp
+    server_handle/setting_handler.cpp 
 )
 
 target_include_directories(server_app
