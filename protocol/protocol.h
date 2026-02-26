@@ -86,7 +86,9 @@ typedef enum
 
     /* 관리자 */
     VALUE_ERR_USER_NOT_FOUND = -60,
-    VALUE_ERR_ALREADY_BANNED = -61
+    VALUE_ERR_ALREADY_BANNED = -61,
+    
+    VALUE_ERR_BLACKLIST_NOT_FOUND = -70,
 
 } ResultValue;
 

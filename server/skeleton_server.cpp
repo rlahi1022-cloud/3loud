@@ -33,6 +33,7 @@
 #include "protocol_schema.h"
 #include "message_handler.hpp"
 #include "profile_handler.hpp"
+#include "blacklisthandler.hpp"
 
 extern "C"
 {                   // C 모듈을 C 링크로 사용
@@ -594,6 +595,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_SETTINGS_VERIFY_REQ:
                 out_payload = handle_settings_verify_req(req, *conn);
                 break;
+            case PKT_BLACKLIST_REQ:
+            out_payload = handle_server_blacklist_process(req, *conn);
+            break;
 
             default:
             {                                                                                          // 알 수 없는 타입

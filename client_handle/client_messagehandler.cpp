@@ -24,6 +24,8 @@
 #include "packet.h"
 #include "json_packet.hpp"
 #include "protocol_schema.h"
+#include "tui.hpp"
+#include "client_blacklisthandler.hpp"
 
 using json = nlohmann::json;
 
@@ -463,6 +465,29 @@ void handle_message_menu(int sock)
     }
 }
 
+// 블랙리스트 메뉴 진입 함수
+void handle_blacklist_menu(int sock)
+{
+    while (true)
+    {
+        // ── 블랙리스트 메뉴 구성 ──
+        std::vector<std::string> items = {
+            "블랙리스트 확인하기",
+            "블랙리스트 추가하기",
+            "블랙리스트 삭제하기",
+            "뒤로가기"
+        };
+
+        int sel = tui_menu("블랙리스트 메뉴", items);
+
+        if (sel == -1 || sel == 3) return;   // ESC 또는 뒤로가기
+
+        if (sel == 0) { handle_blacklist_list(sock); }
+        if (sel == 1) { handle_blacklist_add(sock); }
+        if (sel == 2) { handle_blacklist_remove(sock); }
+    }
+}
+
 // ============================================================
 // 메시지 설정 메뉴 (13-2)
 // ============================================================
@@ -512,7 +537,7 @@ void handle_message_settings(int sock)
         // ─────────────────────────────
         if (sel == 2)
         {
-            tui_menu("블랙리스트 기능은 서버 연동 필요", {"확인"});
+            handle_blacklist_menu(sock);  // 블랙리스트 메뉴 진입
         }
     }
 }

@@ -1,13 +1,13 @@
-#pragma once
+#ifndef CLIENT_BLACKLIST_HANDLER_HPP
+#define CLIENT_BLACKLIST_HANDLER_HPP
 
-#include <string>
-#include <nlohmann/json.hpp>
-#include <mariadb/conncpp.hpp> // [확인] MariaDB 커넥터 직접 참조
+// 블랙리스트 목록 조회
+void handle_blacklist_list(int sock);
 
-using json = nlohmann::json;
+// 블랙리스트 추가
+void handle_blacklist_add(int sock);
 
+// 블랙리스트 삭제
+void handle_blacklist_remove(int sock);
 
-std::string handle_blacklist_process(const json& req, sql::Connection& db);
-std::string handle_blacklist_add(const json& req, sql::Connection& db);
-std::string handle_blacklist_remove(const json& req, sql::Connection& db);
-std::string handle_blacklist_list(const json& req, sql::Connection& db);
+#endif

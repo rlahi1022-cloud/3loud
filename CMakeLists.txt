@@ -65,6 +65,7 @@ add_executable(client_app
     client_handle/client_messagehandler.cpp
     client_handle/file_client.cpp
     client_handle/file_settings.cpp
+    client_handle/client_blacklisthandler.cpp
 )
 
 target_include_directories(client_app
@@ -93,6 +94,7 @@ add_executable(server_app
     server_handle/message_handler.cpp
     server_handle/settings_handler.cpp
     server_handle/profile_handler.cpp
+    server_handle/blacklisthandler.cpp
 )
 
 target_include_directories(server_app
