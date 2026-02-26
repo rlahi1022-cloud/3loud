@@ -11,7 +11,7 @@
 // ============================================================================
 
 #include "file_handler.hpp"
-#include "../protocol/protocal.h"
+#include "protocol.h"
 
 #include <filesystem>
 #include <fstream>
@@ -31,7 +31,7 @@ using json = nlohmann::json;
 // ─────────────────────────────────────────────────────────────────
 //  전역: 서버 파일 저장 루트
 // ─────────────────────────────────────────────────────────────────
-static std::string g_cloud_root;
+std::string g_cloud_root; // static 제거 → settings_handler.cpp 에서 extern 참조 가능
 
 void file_handler_init(const std::string& cloud_root)
 {
@@ -533,6 +533,9 @@ std::string handle_file_list_req(const json& req, sql::Connection& db)
 
     try {
         // 파일 목록 SELECT
+        // 폴더 필터: g_cloud_root/{uno}/{fold}/% 로 시작하는 경로만 매칭
+        // (기존 "%" + fold + "%" 방식은 이름이 포함된 모든 경로를 잘못 매칭함)
+        std::string user_prefix = g_cloud_root + "/" + std::to_string(uno) + "/";
         std::string sql_q =
             "SELECT file_id, file_name, file_size, created_at, file_path "
             "FROM files WHERE no = ? ";
@@ -541,7 +544,8 @@ std::string handle_file_list_req(const json& req, sql::Connection& db)
 
         std::unique_ptr<sql::PreparedStatement> ps(db.prepareStatement(sql_q));
         ps->setInt(1, (int)uno);
-        if (!fold.empty()) ps->setString(2, "%" + fold + "%");
+        // 정확한 폴더 경로 prefix로 필터링 (예: /cloud/1/work/%)
+        if (!fold.empty()) ps->setString(2, user_prefix + fold + "/%");
 
         std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
         while (rs->next()) {

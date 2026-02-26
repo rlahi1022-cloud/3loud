@@ -39,6 +39,9 @@ using json = nlohmann::json;
 // 서버 파일 저장 루트 경로 초기화 (main에서 1회 호출)
 void file_handler_init(const std::string& cloud_root);
 
+// settings_handler.cpp 에서 참조할 수 있도록 extern 선언
+extern std::string g_cloud_root;
+
 // 0x0020  업로드 요청 - 메타 검사 후 READY 응답
 // req payload: { "file_name": str, "file_size": int64, "folder": str }
 std::string handle_file_upload_req(const json& req, sql::Connection& db);

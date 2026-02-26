@@ -1,6 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -9,7 +10,7 @@ using json = nlohmann::json;
 // ============================================================
 
 // 요청 패킷 생성
-inline json make_req(int type, const json& payload = json::object())
+inline json make_req(int type, const json &payload = json::object())
 {
     json pkt;
     pkt["type"] = type;
@@ -18,8 +19,9 @@ inline json make_req(int type, const json& payload = json::object())
 }
 
 // 응답 패킷 생성
-inline json make_resp(int type, int code, const std::string& msg,
-                      const json& payload = json::object())
+
+inline json make_resp(int type, int code, const std::string &msg,
+                      const json &payload = json::object())
 {
     json pkt;
     pkt["type"] = type;
@@ -33,11 +35,11 @@ inline json make_resp(int type, int code, const std::string& msg,
 // Auth Schema
 // ============================================================
 
-namespace AuthSchema {
-
+namespace AuthSchema
+{
     // 로그인 payload
-    inline json make_login_payload(const std::string& email,
-                                   const std::string& pw_hash)
+    inline json make_login_payload(const std::string &email,
+                                   const std::string &pw_hash)
     {
         json pl;
         pl["email"] = email;
@@ -46,9 +48,9 @@ namespace AuthSchema {
     }
 
     // 회원가입 payload
-    inline json make_signup_payload(const std::string& email,
-                                    const std::string& pw_hash,
-                                    const std::string& name)
+    inline json make_signup_payload(const std::string &email,
+                                    const std::string &pw_hash,
+                                    const std::string &name)
     {
         json pl;
         pl["email"] = email;
@@ -59,8 +61,8 @@ namespace AuthSchema {
 
     // 로그인 요청 패킷
     inline json make_login_req(int type_login_req,
-                               const std::string& email,
-                               const std::string& pw_hash)
+                               const std::string &email,
+                               const std::string &pw_hash)
     {
         return make_req(type_login_req,
                         make_login_payload(email, pw_hash));
@@ -68,9 +70,9 @@ namespace AuthSchema {
 
     // 회원가입 요청 패킷
     inline json make_signup_req(int type_signup_req,
-                                const std::string& email,
-                                const std::string& pw_hash,
-                                const std::string& name)
+                                const std::string &email,
+                                const std::string &pw_hash,
+                                const std::string &name)
     {
         return make_req(type_signup_req,
                         make_signup_payload(email, pw_hash, name));
@@ -80,23 +82,25 @@ namespace AuthSchema {
 // ============================================================
 // Message Schema
 // ============================================================
-
-namespace MessageSchema {
+namespace MessageSchema
+{
 
     // 메시지 전송 payload
-    inline json make_send_payload(const std::string& to,
-                                  const std::string& content)
+    inline json make_send_payload(const std::string &to,
+                                  const std::string &content)
     {
         json pl;
-        pl["to"] = to;             // 받는 사람
-        pl["content"] = content;   // 메시지 내용
+        pl["to"] = to;           // 받는 사람
+        pl["content"] = content; // 메시지 내용
+
         return pl;
     }
 
     // 메시지 전송 요청 패킷
     inline json make_send_req(int type_msg_send_req,
-                              const std::string& to,
-                              const std::string& content)
+
+                              const std::string &to,
+                              const std::string &content)
     {
         return make_req(type_msg_send_req,
                         make_send_payload(to, content));
@@ -105,7 +109,7 @@ namespace MessageSchema {
     // 메시지 목록 조회 payload (필요시 확장)
     inline json make_list_payload()
     {
-        return json::object();     // 현재는 빈 payload
+        return json::object(); // 현재는 빈 payload
     }
 
     inline json make_list_req(int type_msg_list_req)
@@ -142,5 +146,20 @@ namespace MessageSchema {
     {
         return make_req(type_msg_delete_req,
                         make_delete_payload(msg_id));
+    }
+
+    // 복수 삭제 payload (msg_ids 배열)
+    inline json make_bulk_delete_payload(const std::vector<int>& msg_ids)
+    {
+        json pl;
+        pl["msg_ids"] = msg_ids;
+        return pl;
+    }
+
+    inline json make_bulk_delete_req(int type_msg_delete_req,
+                                     const std::vector<int>& msg_ids)
+    {
+        return make_req(type_msg_delete_req,
+                        make_bulk_delete_payload(msg_ids));
     }
 }

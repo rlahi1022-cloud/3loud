@@ -16,10 +16,11 @@
 // ============================================================================
 
 #include "file_client.hpp"
+#include "file_settings.hpp"         // 파일 설정 로드 (크기 제한, 저장 폴더) - 요구사항 13-3
 #include "tui.hpp"
 #include "../client/client_net.hpp"
-#include "../protocol/json_packet.hpp"
-#include "../protocol/protocal.h"
+#include "json_packet.hpp"
+#include "protocol.h"
 
 #include <iostream>
 #include <fstream>
@@ -520,8 +521,26 @@ void handle_file_upload(int sock)
         return;
     }
 
+    // ── 요구사항 13-3-2: 파일 크기 제한 검사 ───────────────────
+    // 로컬 설정에 max_recv_size 가 설정돼 있으면 초과 파일은 업로드 거절
+    {
+        FileSettings fs_cfg = load_file_settings();
+        if (fs_cfg.max_recv_size > 0 && fsize > fs_cfg.max_recv_size) {
+            printf("\033[H\033[J");
+            std::cout << "==========================================\n";
+            std::cout << "  [업로드 거절] 파일 크기 제한 초과\n";
+            std::cout << "  파일 크기  : " << human_size(fsize) << "\n";
+            std::cout << "  설정 제한  : " << human_size(fs_cfg.max_recv_size) << "\n";
+            std::cout << "  (설정 > 파일설정 > 파일 크기 제한에서 변경 가능)\n";
+            std::cout << "==========================================\n";
+            std::cout << "계속하려면 Enter...";
+            std::cin.get();
+            return;
+        }
+    }
+
     // 클라우드 저장 폴더 입력
-    printf("\033[H\033[J");   // ← clear 추가
+    printf("\033[H\033[J");
     std::cout << "==========================================\n";
     std::cout << "  선택된 파일: " << fpath.filename().string() << "\n";
     std::cout << "  크기: " << human_size(fsize) << "\n";
@@ -626,14 +645,19 @@ void handle_file_download(int sock)
     int64_t tc    = mp.value("total_chunks", (int64_t)1);
 
     // ── 저장 위치 탐색기로 선택 (13-3-3) ─────────────────────────
+    // 설정에 저장된 폴더를 탐색 시작점으로 사용 (13-3-3: 받는 위치 설정 반영)
+    FileSettings dl_cfg  = load_file_settings();
+    std::string  dl_base = get_download_dir(dl_cfg); // 설정 폴더 or 기본값 (13-3-3-1 적용)
+
     std::cout << "\n저장할 폴더를 선택하세요. (Enter로 탐색기 시작)\n";
+    std::cout << "  기본 위치: " << dl_base << "\n";
     std::cin.get();
 
-    std::string save_dir = tui_browse_dir(g_download_dir);
+    std::string save_dir = tui_browse_dir(dl_base);  // 설정된 폴더에서 탐색 시작
     if (save_dir.empty()) {
-        save_dir = g_download_dir;
+        save_dir = dl_base;                           // 취소 시 설정 폴더(또는 기본 Downloads)로 저장
         printf("\033[H\033[J");
-        std::cout << "[안내] 기본 폴더에 저장합니다: " << save_dir << "\n";
+        std::cout << "[안내] 설정 폴더에 저장합니다: " << save_dir << "\n";
     }
 
     // ── 중복 파일명 방지 (요구사항 12-1-11, 다운로드에도 동일 적용) ──
