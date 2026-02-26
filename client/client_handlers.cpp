@@ -541,4 +541,106 @@ void handle_logout(int sock) { cout << ">> 로그아웃 완료\n"; }
 // void handle_file_upload(int sock) { cout << ">> [미구현] 파일 업로드\n"; }
 // void handle_file_download(int sock) { cout << ">> [미구현] 파일 다운로드\n"; }
 // void handle_message_menu(int sock) { cout << ">> [미구현] 메시지 메뉴\n"; }
-void handle_profile_menu(int sock) { cout << ">> [미구현] 프로필 메뉴\n"; }
+void handle_profile_menu(int sock)
+{
+    while (true)
+    {
+        // 화면 지우기
+        printf("\033[H\033[J");
+
+        cout << "==========================================\n";
+        cout << "  [개인 설정] (User No: " << g_user_no << ")\n";
+        cout << "------------------------------------------\n";
+        cout << "  1. 이메일 변경\n";
+        cout << "  2. 비밀번호 변경\n";
+        cout << "  3. 닉네임 변경\n";
+        cout << "  0. 뒤로 가기\n";
+        cout << "==========================================\n";
+        cout << "선택 > ";
+
+        int choice;
+        if (!(cin >> choice))
+        {
+            clear_input();
+            continue;
+        }
+        clear_input(); // 버퍼 비우기
+
+        if (choice == 0)
+            return;
+
+        string update_type;
+        string input_value;
+        string prompt_msg;
+
+        if (choice == 1)
+        {
+            update_type = "email";
+            prompt_msg = "변경할 새 이메일: ";
+        }
+        else if (choice == 2)
+        {
+            update_type = "pw";
+            prompt_msg = "변경할 새 비밀번호: ";
+        }
+        else if (choice == 3)
+        {
+            update_type = "nickname";
+            prompt_msg = "변경할 새 닉네임: ";
+        }
+        else
+        {
+            cout << "잘못된 선택입니다.\n";
+            wait_for_enter();
+            continue;
+        }
+
+        cout << prompt_msg;
+        getline(cin, input_value);
+
+        if (input_value.empty())
+        {
+            cout << "값을 입력해주세요.\n";
+            wait_for_enter();
+            continue;
+        }
+
+        // 비밀번호는 해싱하여 전송
+        if (update_type == "pw")
+        {
+            input_value = sha256(input_value);
+        }
+
+        // 패킷 생성
+        json req = make_request(PKT_SETTINGS_SET_REQ);
+        req["user_no"] = g_user_no;
+        req["payload"]["update_type"] = update_type;
+        req["payload"]["value"] = input_value;
+
+        // 전송 및 수신
+        if (!send_json(sock, req))
+        {
+            cout << "[오류] 서버 요청 실패\n";
+            break;
+        }
+
+        json resp;
+        if (!recv_json(sock, resp))
+        {
+            cout << "[오류] 서버 응답 수신 실패\n";
+            break;
+        }
+
+        cout << "\n------------------------------------------\n";
+        if (resp.value("code", -1) == VALUE_SUCCESS)
+        {
+            cout << ">> [성공] " << resp.value("msg", "변경 완료") << "\n";
+        }
+        else
+        {
+            cout << ">> [실패] " << resp.value("msg", "변경 실패") << "\n";
+        }
+        cout << "------------------------------------------\n";
+        wait_for_enter();
+    }
+}
