@@ -533,6 +533,9 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_AUTH_LOGIN_REQ:                                    // 로그인
                 out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
                 break;                                                  // break
+            case PKT_MSG_POLL_REQ:                                      // 읽지 않은 메시지 폴링
+                out_payload = handle_msg_poll(req, *conn);              // 핸들 호출
+                break;                                                  // break
             case PKT_MSG_SEND_REQ:                                      // 메시지 전송
                 out_payload = handle_msg_send(req, *conn);              // 핸들 호출
                 break;                                                  // break

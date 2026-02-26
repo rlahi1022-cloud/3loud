@@ -85,6 +85,76 @@ static bool is_blacklisted(sql::Connection& db,
 //   4. 블랙리스트 체크  (차단 시 조용히 SUCCESS 반환)
 //   5. DB INSERT messages
 // ============================================================
+// ============================================================
+// handle_msg_poll  (PKT_MSG_POLL_REQ = 0x0011)
+//
+// 폴링 전용 핸들러: 세션 없이 email+pw_hash로 직접 인증
+// 중복 로그인 체크 없이 has_unread 만 반환
+//
+// 요청 payload: { "email": "...", "pw_hash": "..." }
+// 응답 payload: { "has_unread": true/false }
+// ============================================================
+std::string handle_msg_poll(const json& req, sql::Connection& db)
+{
+    try
+    {
+        json payload = get_payload(req);
+        std::string email   = payload.value("email",   "");
+        std::string pw_hash = payload.value("pw_hash", "");
+
+        if (email.empty() || pw_hash.empty())
+        {
+            json res = make_response(PKT_MSG_POLL_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "email/pw_hash 누락";
+            return res.dump();
+        }
+
+        // pw_hash 검증
+        std::unique_ptr<sql::PreparedStatement> auth_st(
+            db.prepareStatement("SELECT pw_hash FROM users WHERE email = ? LIMIT 1")
+        );
+        auth_st->setString(1, email);
+        std::unique_ptr<sql::ResultSet> auth_rs(auth_st->executeQuery());
+        if (!auth_rs->next() ||
+            std::string(auth_rs->getString("pw_hash").c_str()) != pw_hash)
+        {
+            json res = make_response(PKT_MSG_POLL_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "인증 실패";
+            return res.dump();
+        }
+
+        // has_unread 조회
+        std::unique_ptr<sql::PreparedStatement> pstmt(
+            db.prepareStatement(
+                "SELECT COUNT(*) AS cnt FROM messages "
+                "WHERE to_email = ? AND is_read = 0 LIMIT 1"
+            )
+        );
+        pstmt->setString(1, email);
+        std::unique_ptr<sql::ResultSet> rs(pstmt->executeQuery());
+        bool has_unread = false;
+        if (rs->next()) has_unread = (rs->getInt("cnt") > 0);
+
+        json res = make_response(PKT_MSG_POLL_REQ, VALUE_SUCCESS);
+        res["msg"]     = "ok";
+        res["payload"] = { {"has_unread", has_unread} };
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        std::cerr << "[POLL] SQL 예외: " << e.what() << std::endl;
+        json res = make_response(PKT_MSG_POLL_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (const std::exception& e)
+    {
+        json res = make_response(PKT_MSG_POLL_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = std::string("오류: ") + e.what();
+        return res.dump();
+    }
+}
+
 std::string handle_msg_send(const json& req, sql::Connection& db)
 {
     try

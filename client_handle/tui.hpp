@@ -11,6 +11,8 @@
 #include <iostream>
 #include <termios.h>
 #include <unistd.h>
+#include <atomic>
+#include <sys/select.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -41,16 +43,42 @@ inline void clear()       { write(STDOUT_FILENO, "\033[2J\033[3J\033[H", 11); }
 inline void hide_cursor() { write(STDOUT_FILENO, "\033[?25l", 6); }
 inline void show_cursor() { write(STDOUT_FILENO, "\033[?25h", 6); }
 
-inline int read_key() {
-    int c = getchar();
+// 1바이트 읽기 (select 후 read() 직접 사용 - getchar() 버퍼링 문제 회피)
+inline int read_one(int timeout_us) {
+    fd_set fds; FD_ZERO(&fds); FD_SET(STDIN_FILENO, &fds);
+    struct timeval tv{ timeout_us / 1000000, timeout_us % 1000000 };
+    if (select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) <= 0)
+        return -2;
+    unsigned char c;
+    if (::read(STDIN_FILENO, &c, 1) != 1) return -2;
+    return (int)c;
+}
+
+// 논블로킹 키 읽기: timeout_ms 동안 입력 대기, 없으면 -2 반환
+inline int read_key_timeout(int timeout_ms) {
+    int c = read_one(timeout_ms * 1000);
+    if (c == -2) return -2;  // 타임아웃
+
     if (c == 27) {
-        int c2 = getchar();
-        if (c2 == '[') { int c3 = getchar();
-            if (c3=='A') return 1000; if (c3=='B') return 1001;
-            if (c3=='C') return 1002; if (c3=='D') return 1003; }
+        // ESC 시퀀스 확인 (50ms 대기)
+        int c2 = read_one(50000);
+        if (c2 == -2) return 27;  // 단독 ESC
+        if (c2 == '[') {
+            int c3 = read_one(50000);
+            if (c3 == -2) return 27;
+            if (c3=='A') return 1000;
+            if (c3=='B') return 1001;
+            if (c3=='C') return 1002;
+            if (c3=='D') return 1003;
+        }
         return 27;
     }
     return c;
+}
+
+inline int read_key() {
+    // 블로킹: 최대 10초 대기 (사실상 무한)
+    return read_key_timeout(10000);
 }
 
 inline void print_divider(char c='-') {
@@ -112,34 +140,68 @@ inline std::string parent(const std::string& p) {
 
 // ─────────────────────────────────────────────────────────────────
 //  tui_menu
+//  items_fn: nullptr 이면 items 고정 사용
+//            함수 포인터가 있으면 매 루프마다 호출해 항목 동적 갱신
+//            (실시간 [!] 뱃지 갱신에 사용)
 // ─────────────────────────────────────────────────────────────────
+#include <functional>
+
 inline int tui_menu(const std::string& title,
-                    const std::vector<std::string>& items)
+                    const std::vector<std::string>& items,
+                    std::function<std::vector<std::string>()> items_fn = nullptr)
 {
-    if (items.empty()) return -1;
-    int cur=0, offset=0, n=(int)items.size();
+    if (items.empty() && !items_fn) return -1;
+    std::vector<std::string> cur_items = items;
+    int cur=0, offset=0;
+    int n=(int)cur_items.size();
     const int HDR=4, FTR=2;
     termios old_t; tui_detail::set_raw(old_t); tui_detail::hide_cursor();
 
+    bool need_redraw = true;
+
     while (true) {
-        int vsz = tui_detail::viewport_size(HDR, FTR);
-        tui_detail::adjust_offset(cur, n, vsz, offset);
-        tui_detail::clear();
-        tui_detail::print_divider('=');
-        printf("  %s\n", title.c_str());
-        tui_detail::print_divider('=');
+        // 동적 항목 갱신
+        if (items_fn) {
+            auto new_items = items_fn();
+            if (new_items != cur_items) {
+                cur_items  = new_items;
+                n          = (int)cur_items.size();
+                cur        = std::min(cur, n - 1);
+                need_redraw = true;
+            }
+        }
 
-        if (offset>0) printf("  \033[90m▲ %d개 더\033[0m\n", offset);
-        int end = std::min(offset+vsz, n);
-        for (int i=offset; i<end; i++)
-            tui_detail::print_item(items[i], i==cur);
-        if (end<n) printf("  \033[90m▼ %d개 더\033[0m\n", n-end);
+        if (need_redraw) {
+            int vsz = tui_detail::viewport_size(HDR, FTR);
+            tui_detail::adjust_offset(cur, n, vsz, offset);
+            tui_detail::clear();
+            tui_detail::print_divider('=');
+            printf("  %s\n", title.c_str());
+            tui_detail::print_divider('=');
 
-        tui_detail::print_divider('-');
-        printf("  [↑↓] 이동   [Enter] 선택   [ESC] 취소\n");
-        fflush(stdout);
+            if (offset>0) printf("  \033[90m▲ %d개 더\033[0m\n", offset);
+            int end = std::min(offset+vsz, n);
+            for (int i=offset; i<end; i++)
+                tui_detail::print_item(cur_items[i], i==cur);
+            if (end<n) printf("  \033[90m▼ %d개 더\033[0m\n", n-end);
 
-        int k = tui_detail::read_key();
+            tui_detail::print_divider('-');
+            printf("  [↑↓] 이동   [Enter] 선택   [ESC] 취소\n");
+            fflush(stdout);
+            need_redraw = false;
+        }
+
+        // 100ms 타임아웃으로 키 대기 → items_fn 있으면 주기적 갱신
+        int k = (items_fn)
+            ? tui_detail::read_key_timeout(100)
+            : tui_detail::read_key_timeout(500);
+
+        if (k == -2) {
+            // 타임아웃: need_redraw는 items_fn 비교 결과가 이미 반영됨 → 그대로 continue
+            continue;
+        }
+
+        need_redraw = true;
         if      (k==1000) cur=(cur-1+n)%n;
         else if (k==1001) cur=(cur+1)%n;
         else if (k=='\n'||k=='\r') break;

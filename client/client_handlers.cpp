@@ -263,6 +263,7 @@ bool handle_login(int sock)
 
     // 3. 비밀번호 해싱 (서버와 동일한 알고리즘 필수)
     string hashed_pw = sha256(pw);
+    g_current_pw_hash = hashed_pw;  // 폴링 소켓 재로그인용
 
     // 4.스키마를 이용해 요청 패킷 생성
     json req = AuthSchema::make_login_req(PKT_AUTH_LOGIN_REQ, email, hashed_pw);
@@ -298,6 +299,7 @@ bool handle_login(int sock)
             // (만약 user_no가 없으면 0으로 설정)
             g_user_no = payload.value("user_no", (uint32_t)0);
         }
+        g_current_user_email = email;  // 폴링용 이메일 저장
 
         cout << ">> [로그인 성공] " << msg << endl;
         wait_for_enter();

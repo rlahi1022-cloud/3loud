@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <fstream>
+#include <atomic>
 #include <termios.h>
 #include <unistd.h>
 #include "tui.hpp"
@@ -31,6 +33,7 @@ using json = nlohmann::json;
 
 // 로그인한 사용자 이메일
 extern std::string g_current_user_email;
+extern std::atomic<bool> g_has_unread;  // 폴링 스레드가 갱신하는 unread 플래그
 
 // 메시지 설정 (13-2-1, 13-2-2): 설정 메뉴에서 변경 가능
 std::string g_msg_prefix;   // 기본 메시지
@@ -45,21 +48,159 @@ static std::vector<std::string> g_receiver_history;
 extern void clear_stdin_line();
 
 // ──────────────────────────────────────────────
-// 유틸: 수신자 이력에 추가 (중복 제거, 최신 우선, 최대 10개)
+// 이력 파일 경로: ~/.3loud_recv_[email].txt
+// ──────────────────────────────────────────────
+static std::string history_file_path()
+{
+    const char* home = getenv("HOME");
+    if (!home) home = "/tmp";
+    std::string safe_email = g_current_user_email;
+    // 파일명에 쓸 수 없는 문자 치환
+    for (char& c : safe_email)
+        if (c == '@' || c == '.' || c == '/') c = '_';
+    return std::string(home) + "/.3loud_recv_" + safe_email + ".txt";
+}
+
+// ──────────────────────────────────────────────
+// 이력 파일 로드 (로그인 후 1회 호출)
+// ──────────────────────────────────────────────
+void load_receiver_history()
+{
+    g_receiver_history.clear();
+    std::ifstream f(history_file_path());
+    std::string line;
+    while (std::getline(f, line))
+    {
+        if (!line.empty() && g_receiver_history.size() < 10)
+            g_receiver_history.push_back(line);
+    }
+}
+
+// ──────────────────────────────────────────────
+// 이력 파일 저장
+// ──────────────────────────────────────────────
+static void save_receiver_history()
+{
+    std::ofstream f(history_file_path(), std::ios::trunc);
+    for (auto& e : g_receiver_history)
+        f << e << "\n";
+}
+
+// ──────────────────────────────────────────────
+// 유틸: 수신자 이력에 추가 (중복 제거, 최신 우선, 최대 10개) + 파일 저장
 // ──────────────────────────────────────────────
 static void push_receiver_history(const std::string& email)
 {
-    // 기존에 있으면 제거
     g_receiver_history.erase(
         std::remove(g_receiver_history.begin(),
                     g_receiver_history.end(), email),
         g_receiver_history.end()
     );
-    // 앞에 삽입
     g_receiver_history.insert(g_receiver_history.begin(), email);
-    // 최대 10개 유지
     if (g_receiver_history.size() > 10)
         g_receiver_history.resize(10);
+    save_receiver_history();
+}
+
+// ──────────────────────────────────────────────
+// ↑ 키로 이력 탐색하는 수신자 입력 함수 (11-1-2)
+//   - 일반 문자: 버퍼에 추가
+//   - Backspace: 버퍼 뒤 삭제
+//   - ↑ : 이력에서 이전 항목
+//   - ↓ : 이력에서 다음 항목 (또는 원래 입력 복원)
+//   - Enter: 확정
+//   - ESC: 취소 → 빈 문자열 반환
+// ──────────────────────────────────────────────
+static std::string input_with_history(const std::string& prompt)
+{
+    std::string buf;          // 현재 입력 버퍼
+    std::string saved;        // ↑ 누르기 전 원본 보존
+    int hist_idx = -1;        // -1 = 직접 입력 중
+
+    // raw 모드 진입
+    termios old_t, raw_t;
+    tcgetattr(STDIN_FILENO, &old_t);
+    raw_t = old_t;
+    raw_t.c_lflag &= ~(ICANON | ECHO);
+    raw_t.c_cc[VMIN]  = 1;
+    raw_t.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw_t);
+
+    // 프롬프트 출력
+    std::cout << prompt << std::flush;
+
+    auto redraw = [&]() {
+        // 현재 줄 지우고 다시 그리기
+        std::cout << "\r\033[2K" << prompt << buf << std::flush;
+    };
+
+    std::string result;
+    bool cancelled = false;
+
+    while (true)
+    {
+        int c = getchar();
+
+        if (c == '\n' || c == '\r')   // Enter
+        {
+            result = buf;
+            break;
+        }
+        else if (c == 27)            // ESC 시퀀스
+        {
+            int c2 = getchar();
+            if (c2 == '[')
+            {
+                int c3 = getchar();
+                if (c3 == 'A')       // ↑ : 이력 이전
+                {
+                    if (!g_receiver_history.empty())
+                    {
+                        if (hist_idx == -1) saved = buf;
+                        hist_idx = std::min(hist_idx + 1,
+                                            (int)g_receiver_history.size() - 1);
+                        buf = g_receiver_history[hist_idx];
+                        redraw();
+                    }
+                }
+                else if (c3 == 'B') // ↓ : 이력 다음 / 원본 복원
+                {
+                    if (hist_idx > 0)
+                    {
+                        hist_idx--;
+                        buf = g_receiver_history[hist_idx];
+                    }
+                    else if (hist_idx == 0)
+                    {
+                        hist_idx = -1;
+                        buf = saved;
+                    }
+                    redraw();
+                }
+            }
+            else if (c2 == 27 || c2 == EOF)  // 단독 ESC
+            {
+                cancelled = true;
+                break;
+            }
+        }
+        else if (c == 127 || c == 8) // Backspace
+        {
+            if (!buf.empty()) { buf.pop_back(); redraw(); }
+        }
+        else if (c >= 32)            // 일반 문자
+        {
+            buf += (char)c;
+            hist_idx = -1;           // 직접 입력 시 이력 탐색 리셋
+            redraw();
+        }
+    }
+
+    // raw 모드 복원
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_t);
+    std::cout << "\n" << std::flush;
+
+    return cancelled ? "" : result;
 }
 
 // ──────────────────────────────────────────────
@@ -87,42 +228,13 @@ static json send_recv(int sock, const json& req)
 // ============================================================
 static void handle_message_send_ui(int sock)
 {
-    std::cout << "\n[메시지 전송]\n";
+    // ── 수신자 입력: ↑↓ 키로 이력 탐색 (11-1-2) ──
+    std::string receiver = input_with_history("받는 사람 이메일 (↑↓ 이력): ");
 
-    // ── 수신자 입력 (11-1-2: ↑ 키 이력 안내) ──
-    std::string receiver;
-    std::cout << "받는 사람 이메일 (이전 이력 보기: h 입력): ";
-    std::cin >> receiver;
-    clear_stdin_line();
-
-    if (receiver == "h" || receiver == "H")
-    {
-        if (g_receiver_history.empty())
-        {
-            tui_menu("이전 수신자 이력 없음", {"확인"});
-            return;
-        }
-
-        // 이력 목록을 tui_menu로 표시
-        std::vector<std::string> hist_items(
-            g_receiver_history.begin(), g_receiver_history.end());
-        hist_items.push_back("취소");
-
-        int hist_sel = tui_menu("수신자 이력 선택", hist_items);
-        int cancel_idx = (int)g_receiver_history.size();
-
-        if (hist_sel == -1 || hist_sel == cancel_idx) return;
-        receiver = g_receiver_history[hist_sel];
-    }
-
-    if (receiver.empty())
-    {
-        tui_menu("수신자를 입력하세요", {"확인"});
-        return;
-    }
+    if (receiver.empty()) return;   // ESC 또는 빈 입력
 
     // ── 메시지 입력 ──
-    std::cout << "내용: ";
+    std::cout << "내용: " << std::flush;
     std::string content;
     std::getline(std::cin, content);
 
@@ -132,11 +244,15 @@ static void handle_message_send_ui(int sock)
     full_content += content;
     if (!g_msg_suffix.empty()) full_content += g_msg_suffix;
 
-    // ── 길이 검증 (11-1-3) ──
+    // ── 길이 검증 (11-1-3): tui_menu로 안내 ──
     if (full_content.size() > 1024)
     {
-        std::cout << ">> 오류: 기본/마무리 메시지 포함 1024 bytes 초과 ("
-                  << full_content.size() << " bytes)\n";
+        tui_menu(
+            "전송 불가: 1024 bytes 초과\n"
+            "  현재 크기: " + std::to_string(full_content.size()) + " bytes\n"
+            "  (기본/마무리 메시지 포함)",
+            {"확인"}
+        );
         return;
     }
 
@@ -329,37 +445,15 @@ void handle_message_menu(int sock)
 {
     while (true)
     {
-        // ── 메뉴 진입마다 안읽은 메시지 여부 서버 폴링 ──
-        bool has_unread = false;
-        {
-            json poll_req = make_request(PKT_MSG_LIST_REQ);
-            poll_req["payload"]["page"] = 0;
-            std::string s = poll_req.dump();
+        // ── 메시지 메뉴: items_fn으로 g_has_unread 실시간 반영 ──
+        auto msg_items_fn = []() -> std::vector<std::string> {
+            std::string read_label = g_has_unread.load()
+                ? "메시지 확인하기  \033[33m[!]\033[0m"
+                : "메시지 확인하기";
+            return { "메시지 보내기", read_label, "메시지 삭제하기", "뒤로가기" };
+        };
 
-            if (packet_send(sock, s.c_str(), (uint32_t)s.size()) == 0)
-            {
-                char*    rbuf = nullptr;
-                uint32_t rlen = 0;
-                if (packet_recv(sock, &rbuf, &rlen) == 0)
-                {
-                    auto r = json::parse(std::string(rbuf, rlen));
-                    has_unread = r["payload"].value("has_unread", false);
-                    free(rbuf);
-                }
-            }
-        }
-
-        // 안읽은 메시지 여부를 항목에 반영
-        std::string read_label = has_unread
-            ? "메시지 확인하기  \033[33m[!]\033[0m"
-            : "메시지 확인하기";
-
-        int sel = tui_menu("메시지 메뉴", {
-            "메시지 보내기",
-            read_label,
-            "메시지 삭제하기",
-            "뒤로가기"
-        });
+        int sel = tui_menu("메시지 메뉴", msg_items_fn(), msg_items_fn);
 
         if (sel == -1 || sel == 3) return;   // ESC 또는 뒤로가기
 

@@ -6,6 +6,9 @@
 
 using json = nlohmann::json;
 
+// 읽지 않은 메시지 폴링 (세션 없이 email+pw_hash 인증)
+std::string handle_msg_poll(const json& req, sql::Connection& db);
+
 // 메시지 전송
 std::string handle_msg_send(const json& req, sql::Connection& db);
 

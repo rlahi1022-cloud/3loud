@@ -7,6 +7,9 @@
 #include <limits>      // numeric_limits
 #include <arpa/inet.h> // inet_pton, sockaddr_in
 #include <unistd.h>    // close
+#include <thread>      // 백그라운드 폴링 스레드
+#include <atomic>      // g_has_unread 공유 상태
+#include <mutex>       // 폴링 소켓 뮤텍스
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -41,8 +44,98 @@ std::string g_current_user_email;
 extern std::string g_msg_prefix;
 extern std::string g_msg_suffix;
 
+std::string g_current_pw_hash;  // 폴링 소켓 로그인용
+
+// ── 실시간 폴링 (요구사항 9) ──
+std::atomic<bool>  g_has_unread{false};   // 스레드 간 공유 unread 플래그
+static int         g_poll_sock = -1;       // 폴링 전용 소켓
+static std::mutex  g_poll_mutex;           // 폴링 소켓 뮤텍스
+static std::atomic<bool> g_poll_running{false}; // 폴링 스레드 실행 플래그
+static std::thread g_poll_thread;          // 폴링 스레드
+
 // ============================================================================ // 콘솔 입력 버퍼 정리 유틸
 // ============================================================================ 
+
+// ============================================================================
+// 실시간 메시지 폴링 (요구사항 9, 9-1, 9-2)
+// - 전용 소켓(g_poll_sock)으로 5초마다 PKT_MSG_LIST_REQ 전송
+// - 응답의 has_unread를 g_has_unread(atomic)에 저장
+// ============================================================================
+static int make_poll_connection()
+{
+    int s = ::socket(PF_INET, SOCK_STREAM, 0);
+    if (s < 0) return -1;
+    sockaddr_in serv{};
+    serv.sin_family = AF_INET;
+    serv.sin_port   = htons(SERVER_PORT);
+    if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1)
+        { close(s); return -1; }
+    if (::connect(s, (sockaddr*)&serv, sizeof(serv)) < 0)
+        { close(s); return -1; }
+    return s;
+}
+
+static void poll_loop()
+{
+    while (g_poll_running.load())
+    {
+        // 5초 대기 (0.1초씩 쪼개서 종료 신호 빠르게 감지)
+        for (int i = 0; i < 50 && g_poll_running.load(); i++)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        if (!g_poll_running.load()) break;
+
+        std::lock_guard<std::mutex> lk(g_poll_mutex);
+        if (g_poll_sock < 0) continue;
+
+        // PKT_MSG_POLL_REQ 전송 (세션 없이 email+pw_hash 인증, has_unread 확인)
+        json req = make_request(PKT_MSG_POLL_REQ);
+        req["payload"]["email"]   = g_current_user_email;
+        req["payload"]["pw_hash"] = g_current_pw_hash;
+        std::string s = req.dump();
+
+        if (packet_send(g_poll_sock, s.c_str(), (uint32_t)s.size()) < 0)
+        {
+            // 소켓 끊김 → 재연결 시도
+            close(g_poll_sock);
+            g_poll_sock = make_poll_connection();
+            continue;
+        }
+
+        char*    rbuf = nullptr;
+        uint32_t rlen = 0;
+        if (packet_recv(g_poll_sock, &rbuf, &rlen) < 0)
+        {
+            close(g_poll_sock);
+            g_poll_sock = make_poll_connection();
+            continue;
+        }
+
+        try {
+            auto r = json::parse(std::string(rbuf, rlen));
+            bool unread = r["payload"].value("has_unread", false);
+            g_has_unread.store(unread);
+        } catch (...) {}
+        free(rbuf);
+    }
+}
+
+static void start_poll_thread()
+{
+    // PKT_MSG_POLL_REQ는 세션 없이 email+pw_hash로 직접 인증하므로 로그인 불필요
+    g_poll_sock = make_poll_connection();
+    g_poll_running.store(true);
+    g_poll_thread = std::thread(poll_loop);
+}
+
+static void stop_poll_thread()
+{
+    g_poll_running.store(false);
+    if (g_poll_thread.joinable()) g_poll_thread.join();
+    if (g_poll_sock >= 0) { close(g_poll_sock); g_poll_sock = -1; }
+    g_has_unread.store(false);
+}
+
 void clear_stdin_line()                                          // cin 잔여 입력 제거 함수
 {                                                                       // 함수 시작
     std::cin.clear();                                                   // 입력 스트림 오류 상태 초기화
@@ -121,6 +214,10 @@ int main()                              // main 시작
             if (choice == 0) // 로그인 선택
             {                // if 시작
                 logged_in = handle_login(sock); // 로그인 핸들러 호출
+                if (logged_in) {
+                    load_receiver_history();  // 수신자 이력 로드
+                    start_poll_thread();      // 실시간 폴링 시작 (요구사항 9)
+                }
                 continue; // 메뉴 루프 진행
             } // if 끝
 
@@ -140,42 +237,20 @@ int main()                              // main 시작
         while (running && logged_in) // 로그인 상태에서만 반복
         {                            // while 시작
 
-            // ── 안읽은 메시지 여부 확인 (메인 메뉴 진입마다 1회 요청) ──
-            bool has_unread = false;
-            {
-                json poll_req = make_request(PKT_MSG_LIST_REQ);
-                poll_req["payload"]["page"] = 0;
-                std::string s = poll_req.dump();
-
-                if (packet_send(sock, s.c_str(), (uint32_t)s.size()) == 0)
-                {
-                    char*    rbuf = nullptr;
-                    uint32_t rlen = 0;
-                    if (packet_recv(sock, &rbuf, &rlen) == 0)
-                    {
-                        auto r = json::parse(std::string(rbuf, rlen));
-                        has_unread = r["payload"].value("has_unread", false);
-                        free(rbuf);
-                    }
-                }
-            }
-
-            // 메시지 항목에 [!] 배지 표시
-            std::string msg_label = has_unread
-                ? "메시지  \033[33m[!]\033[0m"
-                : "메시지";
+            // ── 메인 메뉴: items_fn으로 g_has_unread 실시간 반영 (요구사항 9) ──
+            auto main_items_fn = []() -> std::vector<std::string> {
+                std::string msg_label = g_has_unread.load()
+                    ? "메시지  \033[33m[!] 읽지 않은 메시지\033[0m"
+                    : "메시지";
+                return { "파일", msg_label, "개인 설정", "로그 아웃", "프로그램 종료" };
+            };
 
             // tui_menu: 0=파일, 1=메시지, 2=개인설정, 3=로그아웃, 4=종료
-            int choice = tui_menu("3LOUD 메인 메뉴", {
-                "파일",
-                msg_label,
-                "개인 설정",
-                "로그 아웃",
-                "프로그램 종료"
-            });
+            int choice = tui_menu("3LOUD 메인 메뉴", main_items_fn(), main_items_fn);
 
             if (choice == -1 || choice == 4) // ESC 또는 종료
             {                    // if 시작
+                stop_poll_thread(); // 폴링 중단
                 running = false; // 전체 종료 플래그
                 break;           // 메인 메뉴 루프 탈출
             } // if 끝
@@ -183,6 +258,7 @@ int main()                              // main 시작
             if (choice == 3)         // 로그아웃
             {                        // if 시작
                 handle_logout(sock); // 로그아웃 훅
+                stop_poll_thread();  // 폴링 중단
                 logged_in = false;   // 로그인 상태 해제
                 break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
             } // if 끝
