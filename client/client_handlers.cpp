@@ -642,6 +642,7 @@ bool handle_profile_menu(int sock)
         cout << "  1. 이메일 변경\n";
         cout << "  2. 비밀번호 변경\n";
         cout << "  3. 닉네임 변경\n";
+        cout << "  4. 회원 등급 변경\n";
         cout << "  0. 뒤로 가기\n";
         cout << "==========================================\n";
         cout << "선택 > ";
@@ -786,6 +787,42 @@ bool handle_profile_menu(int sock)
 
                 // 닉네임은 별도 양식 검사가 없다면 통과
                 break;
+            }
+        }
+        else if (choice == 4)
+        {
+            update_type = "grade";
+            cout << "\n[회원 등급 변경 (취소: /c)]\n";
+            cout << "변경할 등급을 입력하세요 (1 ~ 4)\n";
+
+            while (true)
+            {
+                cout << "등급 > ";
+                getline(cin, input_value);
+
+                if (input_value.empty())
+                {
+                    cout << ">> 값을 입력해주세요.\n";
+                    continue;
+                }
+
+                if (input_value == "/c" || input_value == "/C")
+                {
+                    cout << "메뉴로 돌아갑니다.\n";
+                    wait_for_enter();
+                    back_to_menu = true;
+                    break;
+                }
+
+                // 입력값이 1, 2, 3, 4 중 하나인지 확인
+                if (input_value == "1" || input_value == "2" || input_value == "3" || input_value == "4")
+                {
+                    break; // 유효함
+                }
+                else
+                {
+                    cout << ">> [경고] 등급은 1, 2, 3, 4 중에서 선택해야 합니다.\n";
+                }
             }
         }
         // ==========================================

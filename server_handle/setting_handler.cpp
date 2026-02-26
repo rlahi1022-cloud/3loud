@@ -161,11 +161,15 @@ std::string handle_settings_set_req(const json &req, sql::Connection &db)
         {
             st.reset(db.prepareStatement("UPDATE users SET nickname = ? WHERE no = ?"));
         }
+        else if (type == "grade")
+        {
+            st.reset(db.prepareStatement("UPDATE users SET grade = ? WHERE no = ?"));
+        }
         else
         {
             return make_resp(PKT_SETTINGS_SET_REQ, VALUE_ERR_INVALID_PACKET, "알 수 없는 설정 타입", json::object()).dump();
         }
-
+        // 값 바인딩 (grade는 int 컬럼이지만 setString으로 넣어도 MariaDB가 자동 형변환 처리함)
         st->setString(1, value);
         st->setInt(2, user_no);
 
