@@ -18,16 +18,11 @@
 #include <mutex>
 #include <map> // map 헤더 추가
 
-// [중요 1] 다른 파일(skeleton_server.cpp)에 있는 전역 변수를 가져다 쓰기 위해 선언
 extern std::mutex g_fail_m;
 extern std::map<std::string, int> g_fail_counts;
-
-// server_handle/setting_handler.cpp
-
-// ... (헤더 포함)
-
-extern std::mutex g_fail_m;
-extern std::map<std::string, int> g_fail_counts;
+extern std::mutex g_login_m;
+extern std::unordered_map<std::string, int> g_login_users;  // Email -> Socket
+extern std::unordered_map<int, std::string> g_socket_users; // Socket -> Email
 
 std::string handle_settings_verify_req(const json &req, sql::Connection &db)
 {
@@ -92,12 +87,29 @@ std::string handle_settings_verify_req(const json &req, sql::Connection &db)
                     std::unique_ptr<sql::PreparedStatement> lock_st(db.prepareStatement("UPDATE users SET is_active = 0 WHERE email = ?"));
                     lock_st->setString(1, email);
                     lock_st->executeUpdate();
-
+                    // 실패 카운트 초기화
                     {
                         std::lock_guard<std::mutex> lock(g_fail_m);
                         g_fail_counts.erase(email);
                     }
-                    std::cout << ">> [계정 정지] " << email << " (설정 메뉴 비번 5회 오류)\n";
+
+                    // (3) ★ [추가] 현재 로그인 중인 세션 정보 강제 삭제 (중복 로그인 방지 해제)
+                    {
+                        std::lock_guard<std::mutex> login_lock(g_login_m); // g_login_m 사용
+
+                        // 해당 이메일로 로그인된 소켓 찾기
+                        auto it = g_login_users.find(email);
+                        if (it != g_login_users.end())
+                        {
+                            int target_sock = it->second;
+
+                            // 맵에서 깨끗이 지워줌
+                            g_socket_users.erase(target_sock);
+                            g_login_users.erase(it);
+
+                            std::cout << ">> [System] 정지된 계정(" << email << ") 세션 강제 제거 완료.\n";
+                        }
+                    }
 
                     // ★ 중요: 5회 넘었을 때만 PERMISSION 에러 전송
                     return make_resp(PKT_SETTINGS_VERIFY_REQ, VALUE_ERR_PERMISSION,
