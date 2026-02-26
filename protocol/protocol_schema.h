@@ -1,6 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -145,5 +146,20 @@ namespace MessageSchema
     {
         return make_req(type_msg_delete_req,
                         make_delete_payload(msg_id));
+    }
+
+    // 복수 삭제 payload (msg_ids 배열)
+    inline json make_bulk_delete_payload(const std::vector<int>& msg_ids)
+    {
+        json pl;
+        pl["msg_ids"] = msg_ids;
+        return pl;
+    }
+
+    inline json make_bulk_delete_req(int type_msg_delete_req,
+                                     const std::vector<int>& msg_ids)
+    {
+        return make_req(type_msg_delete_req,
+                        make_bulk_delete_payload(msg_ids));
     }
 }

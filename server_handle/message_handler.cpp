@@ -1,157 +1,451 @@
+// ============================================================
+// message_handler.cpp
+// DB 스키마 기준:
+//   users   : no(PK), email, pw_hash, nickname, ...
+//   messages: msg_id(PK), from_email, to_user_id(→users.no),
+//             content, is_read, is_temp, sent_at
+//   blacklist: owner_user_id(→users.no), blocked_email
+//
+// 세션 맵: g_socket_users[sock] = email
+// ============================================================
+
 #include "message_handler.hpp"
 #include "protocol.h"
 #include "json_packet.hpp"
 #include "server.h"
 #include <memory>
+#include <string>
 
 using json = nlohmann::json;
 
-// ========================================================
-// 메시지 전송 (세션 기반)
-// ========================================================
+// ──────────────────────────────────────────────
+// 내부 헬퍼: 현재 소켓의 세션 이메일 반환
+// ──────────────────────────────────────────────
+static std::string get_session_email(int sock)
+{
+    std::lock_guard<std::mutex> lock(g_login_m);
+    auto it = g_socket_users.find(sock);
+    if (it == g_socket_users.end()) return "";
+    return it->second;
+}
+
+// ──────────────────────────────────────────────
+// 내부 헬퍼: 이메일 → users.no (없으면 0)
+// ──────────────────────────────────────────────
+static unsigned int get_user_no(sql::Connection& db,
+                                const std::string& email)
+{
+    std::unique_ptr<sql::PreparedStatement> ps(
+        db.prepareStatement("SELECT no FROM users WHERE email = ? LIMIT 1")
+    );
+    ps->setString(1, email);
+    std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
+    if (rs->next()) return (unsigned int)rs->getUInt("no");
+    return 0;
+}
+
+// ──────────────────────────────────────────────
+// 내부 헬퍼: 블랙리스트 체크
+//   수신자(receiver_no)가 송신자(sender_email)를 차단했는지
+// ──────────────────────────────────────────────
+static bool is_blacklisted(sql::Connection& db,
+                            unsigned int receiver_no,
+                            const std::string& sender_email)
+{
+    try
+    {
+        std::unique_ptr<sql::PreparedStatement> ps(
+            db.prepareStatement(
+                "SELECT 1 FROM blacklist "
+                "WHERE owner_user_id = ? AND blocked_email = ? LIMIT 1"
+            )
+        );
+        ps->setUInt  (1, receiver_no);
+        ps->setString(2, sender_email);
+        std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
+        return rs->next();
+    }
+    catch (...)
+    {
+        // blacklist 테이블 미생성 등 예외 시 차단 없음으로 처리
+        return false;
+    }
+}
+
+// ============================================================
+// handle_msg_send  (PKT_MSG_SEND_REQ = 0x0010)
+//
+// 요청 payload:
+//   { "to": "수신자이메일", "content": "본문" }
+//
+// 처리 순서:
+//   1. 세션 → 송신자 이메일
+//   2. payload 파싱 및 길이 검증 (최대 1024 bytes)
+//   3. 수신자 이메일 → users.no  (없으면 VALUE_ERR_USER_NOT_FOUND)
+//   4. 블랙리스트 체크  (차단 시 조용히 SUCCESS 반환)
+//   5. DB INSERT messages
+// ============================================================
 std::string handle_msg_send(const json& req, sql::Connection& db)
 {
     try
     {
+        // 1. 세션 확인
+        std::string sender_email = get_session_email(g_current_sock);
+        if (sender_email.empty())
+        {
+            json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
+        }
+
+        // 2. payload 파싱
         json payload = get_payload(req);
+        std::string receiver_email = payload.value("to", "");
+        std::string content        = payload.value("content", "");
 
-        std::string receiver = payload.value("receiver_email", "");
-        std::string content  = payload.value("content", "");
-        std::string vector_str =
-            payload.value("content_vector", json::array()).dump();
-
-        if (receiver.empty() || content.empty())
+        if (receiver_email.empty() || content.empty())
         {
-            json res = make_response(PKT_MSG_SEND_REQ,
-                                     VALUE_ERR_INVALID_PACKET);
-            res["msg"] = "필수 필드 누락";
+            json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "필수 필드(to, content) 누락";
             return res.dump();
         }
 
-        if (content.length() > 1024)
+        // 길이 제한 (기본/마무리 메시지 포함 클라이언트에서 조합 후 전송)
+        if (content.size() > 1024)
         {
-            json res = make_response(PKT_MSG_SEND_REQ,
-                                     VALUE_ERR_INVALID_PACKET);
-            res["msg"] = "1024바이트 초과";
+            json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "메시지 1024 bytes 초과";
             return res.dump();
         }
 
-        // ==========================
-        // ★ 세션에서 sender 가져오기
-        // ==========================
-        std::string sender;
-
+        // 3. 수신자 users.no 조회
+        unsigned int receiver_no = get_user_no(db, receiver_email);
+        if (receiver_no == 0)
         {
-            std::lock_guard<std::mutex> lock(g_login_m);
-
-            auto it = g_socket_users.find(g_current_sock);
-            if (it == g_socket_users.end())
-            {
-                json res = make_response(PKT_MSG_SEND_REQ,
-                                         VALUE_ERR_SESSION);
-                res["msg"] = "로그인 세션 없음";
-                return res.dump();
-            }
-
-            sender = it->second;
+            json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_USER_NOT_FOUND);
+            res["msg"] = "수신자를 찾을 수 없음";
+            return res.dump();
         }
 
-        // ==========================
-        // DB INSERT
-        // ==========================
+        // 4. 블랙리스트 체크
+        //    요구사항 13-2-3-1: "블랙리스트에 추가된 계정으로 온 메시지는 무시"
+        //    → 서버에서 조용히 무시, 송신자에게는 성공으로 응답
+        if (is_blacklisted(db, receiver_no, sender_email))
+        {
+            json res = make_response(PKT_MSG_SEND_REQ, VALUE_SUCCESS);
+            res["msg"] = "전송 완료";
+            return res.dump();
+        }
+
+        // 5. DB INSERT
         std::unique_ptr<sql::PreparedStatement> pstmt(
             db.prepareStatement(
-                "INSERT INTO messages "
-                "(sender_email, receiver_email, content, content_vector) "
-                "VALUES (?, ?, ?, ?)"
+                "INSERT INTO messages (from_email, to_email, content) "
+                "VALUES (?, ?, ?)"
             )
         );
-
-        pstmt->setString(1, sender);
-        pstmt->setString(2, receiver);
+        pstmt->setString(1, sender_email);
+        pstmt->setString(2, receiver_email);
         pstmt->setString(3, content);
-        pstmt->setString(4, vector_str);
         pstmt->executeUpdate();
 
         json res = make_response(PKT_MSG_SEND_REQ, VALUE_SUCCESS);
-        res["msg"] = "전송 성공";
+        res["msg"] = "전송 완료";
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        std::cerr << "[MSG_SEND] SQL 예외: " << e.what() << std::endl;
+        json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "[MSG_SEND] 예외: " << e.what() << std::endl;
+        json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = std::string("오류: ") + e.what();
         return res.dump();
     }
     catch (...)
     {
-        json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_DB);
-        res["msg"] = "DB 오류";
+        std::cerr << "[MSG_SEND] 알 수 없는 예외 발생" << std::endl;
+        json res = make_response(PKT_MSG_SEND_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
         return res.dump();
     }
 }
 
-// ========================================================
-// 메시지 목록 조회 (세션 기반)
-// ========================================================
+// ============================================================
+// handle_msg_list  (PKT_MSG_LIST_REQ = 0x0012)
+//
+// 요청 payload:
+//   { "page": 0 }   ← 생략 가능, 기본 0 (20개씩)
+//
+// 응답 payload:
+//   {
+//     "messages":  [{ msg_id, from_email, content, is_read, sent_at }],
+//     "has_unread": true/false,
+//     "page":       0
+//   }
+//
+// - 수신 메시지 기준 (to_user_id = 내 no)
+// - 최신순, 20개씩 페이징
+// ============================================================
 std::string handle_msg_list(const json& req, sql::Connection& db)
 {
     try
     {
-        // ==========================
-        // ★ 세션에서 사용자 이메일 가져오기
-        // ==========================
-        std::string user_email;
-
+        std::string user_email = get_session_email(g_current_sock);
+        if (user_email.empty())
         {
-            std::lock_guard<std::mutex> lock(g_login_m);
-
-            auto it = g_socket_users.find(g_current_sock);
-            if (it == g_socket_users.end())
-            {
-                json res = make_response(PKT_MSG_LIST_REQ,
-                                         VALUE_ERR_SESSION);
-                res["msg"] = "로그인 세션 없음";
-                return res.dump();
-            }
-
-            user_email = it->second;
+            json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
         }
 
-        // ==========================
-        // 메시지 조회
-        // ==========================
+        unsigned int user_no = get_user_no(db, user_email);
+        if (user_no == 0)
+        {
+            json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_DB);
+            res["msg"] = "사용자 정보 없음";
+            return res.dump();
+        }
+
+        json payload = get_payload(req);
+        int page = payload.value("page", 0);
+        if (page < 0) page = 0;
+        int offset = page * 20;
+
         std::unique_ptr<sql::PreparedStatement> pstmt(
             db.prepareStatement(
-                "SELECT id, sender_email, content, "
-                "DATE_FORMAT(sent_at, '%Y-%m-%d %H:%i:%s') as sent_at "
+                "SELECT msg_id, from_email, content, is_read, "
+                "DATE_FORMAT(sent_at, '%Y-%m-%d %H:%i:%s') AS sent_at "
                 "FROM messages "
-                "WHERE receiver_email = ? OR sender_email = ? "
-                "ORDER BY sent_at DESC LIMIT 20"
+                "WHERE to_email = ? "
+                "ORDER BY sent_at DESC "
+                "LIMIT 20 OFFSET ?"
             )
         );
-
         pstmt->setString(1, user_email);
-        pstmt->setString(2, user_email);
+        pstmt->setInt (2, offset);
 
-        std::unique_ptr<sql::ResultSet> res_db(pstmt->executeQuery());
+        std::unique_ptr<sql::ResultSet> rs(pstmt->executeQuery());
 
-        json msg_list = json::array();
+        json msg_list   = json::array();
+        bool has_unread = false;
 
-        while (res_db->next())
+        while (rs->next())
         {
+            bool is_read = (rs->getInt("is_read") != 0);
+            if (!is_read) has_unread = true;
+
             msg_list.push_back({
-                {"id", res_db->getInt("id")},
-                {"sender", res_db->getString("sender_email")},
-                {"content", res_db->getString("content")},
-                {"sent_at", res_db->getString("sent_at")}
+                {"msg_id",     (int)rs->getUInt("msg_id")},
+                {"from_email", rs->getString("from_email").c_str()},
+                {"content",    rs->getString("content").c_str()},
+                {"is_read",    is_read},
+                {"sent_at",    rs->getString("sent_at").c_str()}
             });
         }
 
         json res = make_response(PKT_MSG_LIST_REQ, VALUE_SUCCESS);
-        res["msg"] = "목록 조회 성공";
-        res["payload"]["messages"] = msg_list;
-
+        res["msg"] = "조회 성공";
+        res["payload"] = {
+            {"messages",   msg_list},
+            {"has_unread", has_unread},
+            {"page",       page}
+        };
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
         return res.dump();
     }
     catch (...)
     {
-        json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_DB);
-        res["msg"] = "DB 오류";
+        json res = make_response(PKT_MSG_LIST_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
+        return res.dump();
+    }
+}
+
+// ============================================================
+// handle_msg_delete  (PKT_MSG_DELETE_REQ = 0x0013)
+//
+// 요청 payload:
+//   { "msg_ids": [1, 2, 3] }   ← 복수 삭제 지원 (최대 100)
+//
+// 보안 규칙:
+//   - 수신자(to_user_id = 내 no) 또는 송신자(from_email = 내 이메일)만 삭제 가능
+// ============================================================
+std::string handle_msg_delete(const json& req, sql::Connection& db)
+{
+    try
+    {
+        std::string user_email = get_session_email(g_current_sock);
+        if (user_email.empty())
+        {
+            json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
+        }
+
+        unsigned int user_no = get_user_no(db, user_email);
+        if (user_no == 0)
+        {
+            json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_DB);
+            res["msg"] = "사용자 정보 없음";
+            return res.dump();
+        }
+
+        json payload = get_payload(req);
+
+        if (!payload.contains("msg_ids")
+            || !payload["msg_ids"].is_array()
+            || payload["msg_ids"].empty())
+        {
+            json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "msg_ids 필드 누락 또는 비어 있음";
+            return res.dump();
+        }
+
+        auto& id_arr = payload["msg_ids"];
+        if (id_arr.size() > 100)
+        {
+            json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "한 번에 최대 100개까지 삭제 가능";
+            return res.dump();
+        }
+
+        // 수신자 또는 송신자 본인 메시지만 삭제
+        std::unique_ptr<sql::PreparedStatement> del_stmt(
+            db.prepareStatement(
+                "DELETE FROM messages "
+                "WHERE msg_id = ? "
+                "AND (to_email = ? OR from_email = ?)"
+            )
+        );
+
+        int       deleted_count = 0;
+        json      failed_ids    = json::array();
+
+        for (const auto& id_val : id_arr)
+        {
+            if (!id_val.is_number_integer()) continue;
+
+            int msg_id = id_val.get<int>();
+            del_stmt->setInt   (1, msg_id);
+            del_stmt->setString(2, user_email);
+            del_stmt->setString(3, user_email);
+
+            int affected = del_stmt->executeUpdate();
+            if (affected > 0)
+                deleted_count++;
+            else
+                failed_ids.push_back(msg_id);
+        }
+
+        if (deleted_count == 0 && !failed_ids.empty())
+        {
+            json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_PERMISSION);
+            res["msg"] = "삭제 가능한 메시지 없음 (없는 ID 또는 권한 부족)";
+            res["payload"] = {{"failed_ids", failed_ids}};
+            return res.dump();
+        }
+
+        json res = make_response(PKT_MSG_DELETE_REQ, VALUE_SUCCESS);
+        res["msg"] = std::to_string(deleted_count) + "개 삭제 완료";
+        res["payload"] = {
+            {"deleted_count", deleted_count},
+            {"failed_ids",    failed_ids}
+        };
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (...)
+    {
+        json res = make_response(PKT_MSG_DELETE_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
+        return res.dump();
+    }
+}
+
+// ============================================================
+// handle_msg_read  (PKT_MSG_READ_REQ = 0x0014)
+//
+// 요청 payload:  { "msg_id": 123 }
+//
+// - 본인 수신 메시지(to_user_id = 내 no)만 읽음 처리 가능
+// ============================================================
+std::string handle_msg_read(const json& req, sql::Connection& db)
+{
+    try
+    {
+        std::string user_email = get_session_email(g_current_sock);
+        if (user_email.empty())
+        {
+            json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
+        }
+
+        unsigned int user_no = get_user_no(db, user_email);
+        if (user_no == 0)
+        {
+            json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_DB);
+            res["msg"] = "사용자 정보 없음";
+            return res.dump();
+        }
+
+        json payload = get_payload(req);
+        if (!payload.contains("msg_id") || !payload["msg_id"].is_number_integer())
+        {
+            json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "msg_id 필드 누락";
+            return res.dump();
+        }
+
+        int msg_id = payload["msg_id"].get<int>();
+
+        std::unique_ptr<sql::PreparedStatement> pstmt(
+            db.prepareStatement(
+                "UPDATE messages SET is_read = 1 "
+                "WHERE msg_id = ? AND to_email = ?"
+            )
+        );
+        pstmt->setInt   (1, msg_id);
+        pstmt->setString(2, user_email);
+
+        int affected = pstmt->executeUpdate();
+        if (affected == 0)
+        {
+            json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_MSG_NOT_FOUND);
+            res["msg"] = "메시지 없음 또는 권한 없음";
+            return res.dump();
+        }
+
+        json res = make_response(PKT_MSG_READ_REQ, VALUE_SUCCESS);
+        res["msg"] = "읽음 처리 완료";
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (...)
+    {
+        json res = make_response(PKT_MSG_READ_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
         return res.dump();
     }
 }
