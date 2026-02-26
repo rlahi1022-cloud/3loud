@@ -40,6 +40,7 @@ extern "C"
 using json = nlohmann::json; // json 타입 별칭
 
 #include "../server_handle/file_handler.hpp"
+#include "../server_handle/settings_handler.hpp"
 
 static constexpr int EPOLL_MAX_EVENTS = 128;             // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
@@ -529,13 +530,15 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 // 2단계: 인증번호 검증 (DB 저장)
             case PKT_AUTH_VERIFY_REQ:
                 out_payload = handle_auth_verify_req(req, *conn);
-                break;                                                  // break
+                break;                                                  
             case PKT_AUTH_LOGIN_REQ:                                    // 로그인
                 out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
-                break;                                                  // break
+                break;                                                  
+                
             case PKT_MSG_SEND_REQ:                                      // 메시지 전송
                 out_payload = handle_msg_send(req, *conn);              // 핸들 호출
-                break;                                                  // break
+                break;                                                  
+
             case PKT_FILE_UPLOAD_REQ:
                 out_payload = handle_file_upload_req(req, *conn);
                 break;
@@ -556,13 +559,21 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 out_payload = handle_file_list_req(req, *conn);
                 break;
 
+            case PKT_SETTINGS_GET_REQ:
+                out_payload = handle_settings_get(req, *conn);
+                break;
+
+            case PKT_SETTINGS_SET_REQ:
+                out_payload = handle_settings_set(req, *conn);
+                break;
+
             case PKT_MSG_LIST_REQ:
                 out_payload = handle_msg_list(req, *conn);
                 break;
             default:
             {                                                                                          // 알 수 없는 타입
                 out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
-                break;                                                                                 // break
+                break;                                                                                 
             } // default 블록 끝
             } // switch 끝
         }

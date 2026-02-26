@@ -34,6 +34,7 @@ extern "C"
 #include "protocol.h"
 #include "client_handlers.h"
 #include "client_messagehandler.hpp"
+#include "file_settings.hpp"
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
 static const int SERVER_PORT = 5010;        // 서버 포트(프로젝트 값으로 맞추기)
 
@@ -201,6 +202,7 @@ int main()                              // main 시작
                         "파일 업로드",
                         "파일 다운로드",
                         "파일 삭제",
+                        "파일 설정"
                         "뒤로가기"
                     });
 
@@ -209,6 +211,7 @@ int main()                              // main 시작
                     if (sub == 1) { handle_file_upload(sock);   continue; }
                     if (sub == 2) { handle_file_download(sock); continue; }
                     if (sub == 3) { handle_file_delete(sock);   continue; }
+                    if (sub == 4) { handle_file_settings_menu(sock);  continue; }
                 }                                                                   // 파일 서브메뉴 루프 끝
 
                 continue; // 메인 메뉴로 복귀

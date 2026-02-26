@@ -62,7 +62,6 @@ add_executable(client_app
     client/skeleton_client.cpp
     client/client_net.cpp
     client/client_handlers.cpp
-    client_handle/client_handlers_stub.cpp
     client_handle/client_messagehandler.cpp
     client_handle/file_client.cpp
     client_handle/file_settings.cpp
@@ -92,6 +91,7 @@ add_executable(server_app
     server/email.cpp
     server_handle/file_handler.cpp
     server_handle/message_handler.cpp
+    server_handle/settings_handler.cpp
 )
 
 target_include_directories(server_app
