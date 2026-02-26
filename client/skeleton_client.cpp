@@ -1,7 +1,7 @@
-// ============================================================================ 
+// ============================================================================
 // 파일명: client_main.cpp                                                       // 파일명
 // 목적: UI는 유지 + Length-Prefix 통신 + 기능은 핸들러로만 호출하는 실행부 뼈대  // 목적
-// ============================================================================ 
+// ============================================================================
 #include <iostream>    // 표준 입출력
 #include <string>      // 문자열
 #include <limits>      // numeric_limits
@@ -13,24 +13,24 @@ using json = nlohmann::json;
 
 extern "C"
 {
-    #include "packet.h"
-}              
-#include "json_packet.hpp"                                                          // JSON 기본 
-#include "../client_handle/file_client.hpp"                                         // 팀원들이 구현할 핸들러 선언
-#include "../client_handle/tui.hpp"                                                 // 방향키 TUI
-#include "protocol_schema.h"                                                        // 스키마
-#include "sha256.h"                                                                // SHA256 해싱
-#include "client_net.hpp"                                                        // 소켓 연결 및 송수신 함수
-#include <iomanip>      // setfill, setw (시간 포맷팅용)
-#include <sys/select.h> // select()
-#include <sys/time.h>   // timeval
-#include <termios.h>    // 터미널 제어
-#include <stdio.h>     // getchar()
-#include <sys/ioctl.h>  // ioctl()로 터미널 크기 가져오기
-#include <sys/types.h> // select() 관련
-#include <sys/stat.h>  // 파일 상태 검사
-#include <fcntl.h>     // 파일 제어 옵션
-#include <cstring>     // memset
+#include "packet.h"
+}
+#include "json_packet.hpp"                  // JSON 기본
+#include "../client_handle/file_client.hpp" // 팀원들이 구현할 핸들러 선언
+#include "../client_handle/tui.hpp"         // 방향키 TUI
+#include "protocol_schema.h"                // 스키마
+#include "sha256.h"                         // SHA256 해싱
+#include "client_net.hpp"                   // 소켓 연결 및 송수신 함수
+#include <iomanip>                          // setfill, setw (시간 포맷팅용)
+#include <sys/select.h>                     // select()
+#include <sys/time.h>                       // timeval
+#include <termios.h>                        // 터미널 제어
+#include <stdio.h>                          // getchar()
+#include <sys/ioctl.h>                      // ioctl()로 터미널 크기 가져오기
+#include <sys/types.h>                      // select() 관련
+#include <sys/stat.h>                       // 파일 상태 검사
+#include <fcntl.h>                          // 파일 제어 옵션
+#include <cstring>                          // memset
 #include "protocol.h"
 #include "client_handlers.h"
 #include "client_messagehandler.hpp"
@@ -43,16 +43,15 @@ extern std::string g_msg_prefix;
 extern std::string g_msg_suffix;
 
 // ============================================================================ // 콘솔 입력 버퍼 정리 유틸
-// ============================================================================ 
-void clear_stdin_line()                                          // cin 잔여 입력 제거 함수
+// ============================================================================
+void clear_stdin_line()                                                 // cin 잔여 입력 제거 함수
 {                                                                       // 함수 시작
     std::cin.clear();                                                   // 입력 스트림 오류 상태 초기화
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // 한 줄 끝까지 버림
 } // 함수 끝
 
 // ============================================================================ // 서버 연결 생성(1회 연결 유지 방식)
-// ============================================================================ 
-
+// ============================================================================
 static int connect_server_or_die()                                                  // 서버 연결 소켓 생성 함수
 {                                                                                   // 함수 시작
     int sock = ::socket(PF_INET, SOCK_STREAM, 0);                                   // TCP 소켓 생성
@@ -61,11 +60,9 @@ static int connect_server_or_die()                                              
         std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
         return -1;                                                                  // 실패 반환
     }                                                                               
-
     sockaddr_in serv{};                 // 서버 주소 구조체
     serv.sin_family = AF_INET;          // IPv4
     serv.sin_port = htons(SERVER_PORT); // 포트 네트워크 바이트 오더 변환
-
 
     if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1) // IP 변환 실패 체크
     {                                                       // if 시작
@@ -89,7 +86,7 @@ static int connect_server_or_die()                                              
 } // 함수 끝
 
 // ============================================================================ // 프로그램 진입점
-// ============================================================================ 
+// ============================================================================
 
 int main()                              // main 시작
 {                                       // 블록 시작
@@ -207,7 +204,7 @@ int main()                              // main 시작
                     if (sub == 1) { handle_file_upload(sock);   continue; }
                     if (sub == 2) { handle_file_download(sock); continue; }
                     if (sub == 3) { handle_file_delete(sock);   continue; }
-                }                    // 파일 서브메뉴 루프 끝
+                }                    
                 continue; // 메인 메뉴로 복귀
             } // 파일 메뉴 if 끝
 
@@ -236,12 +233,10 @@ int main()                              // main 시작
                     if (sub == 1) { handle_file_settings_menu(sock);  continue; }
                     if (sub == 2) { handle_message_settings(sock);  continue; }
                 }
-                continue;                  // 메인 메뉴로 복귀
+                continue;  
             } 
         } 
     } 
-
     close(sock); // 소켓 종료
     return 0;    // 종료 코드
 } // main 끝
-

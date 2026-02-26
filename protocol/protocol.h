@@ -34,9 +34,10 @@ typedef enum
     PKT_FILE_LIST_REQ = 0x0024,
 
     /* ================= 설정 ================= */
-    PKT_SETTINGS_GET_REQ = 0x0030,
-    PKT_SETTINGS_SET_REQ = 0x0031,
+    PKT_SETTINGS_GET_REQ = 0x0030, // 내 정보 조회
+    PKT_SETTINGS_SET_REQ = 0x0031, // 내 정보 변경 요청
     PKT_BLACKLIST_REQ = 0x0032,
+    PKT_SETTINGS_VERIFY_REQ = 0x0033, // 개인설정 들가기 전 비밀번호 인증
 
     /* ================= 관리자 ================= */
     PKT_ADMIN_BROADCAST_REQ = 0x0040,
