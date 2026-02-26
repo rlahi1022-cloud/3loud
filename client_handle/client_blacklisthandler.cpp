@@ -18,7 +18,7 @@ void handle_blacklist_list(int sock)
 
     std::string send_str = req.dump();
     packet_send(sock, send_str.c_str(), send_str.size());
-    printf("### handle_blacklist_list 진입 ###\n");
+
     char* buf = nullptr;
     uint32_t len = 0;
 
@@ -32,21 +32,13 @@ void handle_blacklist_list(int sock)
     try {
         res = json::parse(res_str);
     } catch (...) {
-        std::vector<std::string> err = {
-            "JSON 파싱 실패",
-            "뒤로가기"
-        };
-        (void)tui_menu("오류", err);
+        tui_menu("JSON 파싱 실패", {"뒤로가기"});
         return;
     }
 
     if (!res.contains("code") || res["code"] != VALUE_SUCCESS)
     {
-        std::vector<std::string> err = {
-            res.value("msg", "알 수 없는 오류"),
-            "뒤로가기"
-        };
-        (void)tui_menu("오류", err);
+        tui_menu(res.value("msg", "알 수 없는 오류"), {"뒤로가기"});
         return;
     }
 
@@ -74,10 +66,15 @@ void handle_blacklist_list(int sock)
 
     items.push_back("뒤로가기");
 
-    // 반환값을 명시적으로 무시
-    (void)tui_menu("블랙리스트 목록", items);
-}
+    // 👇 핵심 수정 부분
+    while (true)
+    {
+        int sel = tui_menu("블랙리스트 목록", items);
 
+        if (sel == -1 || sel == (int)items.size() - 1)
+            break;  // ESC 또는 뒤로가기
+    }
+}
 // --------------------------------------------------
 // 블랙리스트 추가
 // --------------------------------------------------
