@@ -35,9 +35,11 @@ extern "C"
 #include "client_handlers.h"
 #include "client_messagehandler.hpp"
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
-static const int SERVER_PORT = 5010;        // 서버 포트(프로젝트 값으로 맞추기)
+static const int SERVER_PORT = 5011;        // 서버 포트(프로젝트 값으로 맞추기)
 
 std::string g_current_user_email;
+extern std::string g_msg_prefix;
+extern std::string g_msg_suffix;
 
 // ============================================================================ // 콘솔 입력 버퍼 정리 유틸
 // ============================================================================ 
@@ -106,44 +108,25 @@ int main()                              // main 시작
         // ================================================================= // 1) 로그인/회원가입 루프(로그인 전 화면)
         while (running && !logged_in) // 로그인 전에는 이 메뉴만 반복
         {                             // while 시작
-            int choice = -1;          // 메뉴 선택 변수
 
-            system("clear");                             // 화면 정리(리눅스)
-            std::cout << "==========================\n"; // UI 라인
-            std::cout << "   3LOUD    \n";               // UI 타이틀
-            std::cout << "==========================\n"; // UI 라인
-            std::cout << "1. 로그인\n";                  // UI 메뉴
-            std::cout << "2. 회원가입\n";                // UI 메뉴
-            std::cout << "0. 종료\n";                    // UI 메뉴
-            std::cout << ">> ";                          // 입력 프롬프트
+            // tui_menu: 0=로그인, 1=회원가입, 2=종료 / ESC=종료
+            int choice = tui_menu("3LOUD", {"로그인", "회원가입", "종료"});
 
-            if (!(std::cin >> choice)) // 숫자 입력 실패(문자 등)
-            {                          // if 시작
-                clear_stdin_line();    // 입력 라인 정리
-                continue;              // 다시 메뉴
-            } // if 끝
-            clear_stdin_line(); // 남은 개행 제거
-
-            if (choice == 0)     // 종료 선택
+            if (choice == -1 || choice == 2) // ESC 또는 종료
             {                    // if 시작
                 running = false; // 전체 종료 플래그 끄기
                 break;           // 로그인 루프 탈출
             } // if 끝
 
-            if (choice == 1) // 로그인 선택
+            if (choice == 0) // 로그인 선택
             {                // if 시작
-                // --------------------------------------------------------- // 로그인은 팀원 핸들러가 구현
-                // 규칙: 성공하면 true 반환, 실패면 false 반환                // 계약(인터페이스)
                 logged_in = handle_login(sock); // 로그인 핸들러 호출
-                // --------------------------------------------------------- // 로그인 성공이면 아래 메인메뉴로 넘어감
                 continue; // 메뉴 루프 진행
             } // if 끝
 
-            if (choice == 2) // 회원가입 선택
+            if (choice == 1) // 회원가입 선택
             {                // if 시작
-                // --------------------------------------------------------- // 회원가입은 "가입만" 하고 로그인 화면 유지
                 handle_signup(sock); // 회원가입 핸들러 호출
-                // --------------------------------------------------------- // 가입 후에도 logged_in은 false 유지
                 continue; // 다시 로그인/회원가입 메뉴로
             } // if 끝
         } // 로그인/회원가입 루프 끝
@@ -156,43 +139,57 @@ int main()                              // main 시작
         // ================================================================= // 2) 로그인 후 메인 메뉴 루프
         while (running && logged_in) // 로그인 상태에서만 반복
         {                            // while 시작
-            int choice = -1;         // 메뉴 선택 변수
 
-            system("clear");                               // 화면 정리
-            std::cout << "============================\n"; // UI 라인
-            std::cout << "        메뉴\n";                 // UI 제목
-            std::cout << "============================\n"; // UI 라인
-            std::cout << "1. 파일\n";                      // 채팅방 자리 -> 파일 메뉴로 변경
-            std::cout << "2. 메시지\n";                    // 메시지 메뉴
-            std::cout << "3. 개인 설정\n";                 // 개인설정 메뉴
-            std::cout << "4. 로그 아웃\n";                 // 로그아웃
-            std::cout << "5. 프로그램 종료\n\n";           // 프로그램 종료
-            std::cout << "[입력] ";                        // 입력 프롬프트
+            // ── 안읽은 메시지 여부 확인 (메인 메뉴 진입마다 1회 요청) ──
+            bool has_unread = false;
+            {
+                json poll_req = make_request(PKT_MSG_LIST_REQ);
+                poll_req["payload"]["page"] = 0;
+                std::string s = poll_req.dump();
 
-            if (!(std::cin >> choice)) // 입력 실패 처리
-            {                          // if 시작
-                clear_stdin_line();    // 입력 라인 정리
-                continue;              // 다시 메뉴
-            } // if 끝
-            clear_stdin_line(); // 남은 개행 제거
+                if (packet_send(sock, s.c_str(), (uint32_t)s.size()) == 0)
+                {
+                    char*    rbuf = nullptr;
+                    uint32_t rlen = 0;
+                    if (packet_recv(sock, &rbuf, &rlen) == 0)
+                    {
+                        auto r = json::parse(std::string(rbuf, rlen));
+                        has_unread = r["payload"].value("has_unread", false);
+                        free(rbuf);
+                    }
+                }
+            }
 
-            if (choice == 4)         // 로그아웃
-            {                        // if 시작
-                handle_logout(sock); // 로그아웃 훅(필요시 서버 통지)
-                logged_in = false;   // 로그인 상태 해제
-                break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
-            } // if 끝
+            // 메시지 항목에 [!] 배지 표시
+            std::string msg_label = has_unread
+                ? "메시지  \033[33m[!]\033[0m"
+                : "메시지";
 
-            if (choice == 5)     // 프로그램 종료
+            // tui_menu: 0=파일, 1=메시지, 2=개인설정, 3=로그아웃, 4=종료
+            int choice = tui_menu("3LOUD 메인 메뉴", {
+                "파일",
+                msg_label,
+                "개인 설정",
+                "로그 아웃",
+                "프로그램 종료"
+            });
+
+            if (choice == -1 || choice == 4) // ESC 또는 종료
             {                    // if 시작
                 running = false; // 전체 종료 플래그
                 break;           // 메인 메뉴 루프 탈출
             } // if 끝
 
+            if (choice == 3)         // 로그아웃
+            {                        // if 시작
+                handle_logout(sock); // 로그아웃 훅
+                logged_in = false;   // 로그인 상태 해제
+                break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
+            } // if 끝
+
             // ================================================================= // 파일 메뉴
-            if (choice == 1) // 파일 메뉴 선택
+            if (choice == 0) // 파일 메뉴 선택
             {                // if 시작
-                // ------------------------------------------------------------ // 파일 메뉴도 "UI 유지 + 핸들러 호출"만
                 bool back = false;                                                  // 뒤로가기 플래그
                 while (!back && running && logged_in)                               // 뒤로가기 전까지 반복
                 {                                                                   // while 시작
@@ -215,16 +212,16 @@ int main()                              // main 시작
             } // 파일 메뉴 if 끝
 
             // ================================================================= // 메시지 메뉴
-            if (choice == 2)               // 메시지 메뉴 선택
+            if (choice == 1)               // 메시지 메뉴 선택
             {                              // if 시작
-                handle_message_menu(sock); // 메시지 메뉴 핸들러(내부 서브메뉴 포함 가능)
+                handle_message_menu(sock); // 메시지 메뉴 핸들러
                 continue;                  // 메인 메뉴로 복귀
             } // if 끝
 
             // ================================================================= // 개인 설정 메뉴
-            if (choice == 3)               // 개인 설정 메뉴 선택
+            if (choice == 2)               // 개인 설정 메뉴 선택
             {                              // if 시작
-                handle_profile_menu(sock); // 개인설정 핸들러(닉변 등)
+                handle_profile_menu(sock); // 개인설정 핸들러
                 continue;                  // 메인 메뉴로 복귀
             } // if 끝
         } // 로그인 후 메인 메뉴 루프 끝

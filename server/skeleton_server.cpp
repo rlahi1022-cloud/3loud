@@ -43,7 +43,7 @@ using json = nlohmann::json; // json 타입 별칭
 
 static constexpr int EPOLL_MAX_EVENTS = 128;             // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
-static constexpr int DEFAULT_PORT = 5010;                // 기본 포트
+static constexpr int DEFAULT_PORT = 5011;                // 기본 포트
 static constexpr int LISTEN_BACKLOG = 64;                // listen backlog
 // [추가] Worker가 Main을 깨우기 위해 사용할 전역 파일 디스크립터
 int g_wake_fd = -1;
@@ -559,6 +559,14 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_MSG_LIST_REQ:
                 out_payload = handle_msg_list(req, *conn);
                 break;
+
+            case PKT_MSG_DELETE_REQ:
+                out_payload = handle_msg_delete(req, *conn);
+                break;
+
+            case PKT_MSG_READ_REQ:
+                out_payload = handle_msg_read(req, *conn);
+                break;
             default:
             {                                                                                          // 알 수 없는 타입
                 out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
@@ -570,6 +578,15 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
         {                                                                                                                 // 파싱/처리 예외
             out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, std::string("Exception: ") + e.what(), json::object()).dump(); // 에러 응답
         } // try-catch 끝
+
+        // 응답 페이로드 비어있으면 에러 응답으로 대체
+        if (out_payload.empty())
+        {
+            out_payload = make_resp(type, VALUE_ERR_UNKNOWN, "empty response", json::object()).dump();
+        }
+        std::cout << "[DEBUG] response type=" << type
+                  << " len=" << out_payload.size()
+                  << " payload=" << out_payload.substr(0, 120) << std::endl;
 
         {                                                       // 응답 큐 lock 블록
             std::lock_guard<std::mutex> lk(g_res_m);            // 응답 큐 lock
