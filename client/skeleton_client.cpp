@@ -186,7 +186,7 @@ int main()                              // main 시작
     int sock = connect_server_or_die(); // 서버 연결(1회 연결 유지)
     if (sock < 0)                       // 연결 실패면 종료
     {                                   // if 시작
-        return 1;                       // 종료 코드 반환
+        return 1;                        
     }
 
     bool running = true;    // 프로그램 실행 플래그
@@ -373,5 +373,5 @@ int main()                              // main 시작
         }
     }
     close(sock); // 소켓 종료
-    return 0;    // 종료 코드
-} // main 끝
+    return 0;    
+} 

@@ -21,6 +21,7 @@
 #include <sys/time.h>   // timeval
 #include <unistd.h>     // usleep
 #include <iomanip>      // setfill, setw (시간 포맷팅용)
+#include "tui.hpp"
 
 using namespace std;
 

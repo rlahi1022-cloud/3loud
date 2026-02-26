@@ -89,102 +89,111 @@ std::string handle_server_blacklist_add(const json& req, sql::Connection& db)   
  * 서버 측 블랙리스트 해제 (DELETE)                                               
  * payload: { "action":"remove", "blocked_email":"..." }                           // payload 설명
  */
-std::string handle_server_blacklist_remove(const json& req, sql::Connection& db)  // 블랙리스트 삭제 핸들러
-{                                                                                 
-    std::string owner;                                                           // 차단자 이메일 변수
-    std::string blocked;                                                         // 피차단자 이메일 변수
+std::string handle_server_blacklist_remove(const json& req, sql::Connection& db)
+{
+    std::string owner;
+    std::string blocked;
 
-    if (!get_owner_and_blocked(req, owner, blocked))                              // 세션/입력 검증
-    {                                                                             
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션/입력 오류 반환
-    }                                                                            
+    if (!get_owner_and_blocked(req, owner, blocked))
+    {
+        return make_response(PKT_BLACKLIST_REQ,
+                             VALUE_ERR_SESSION).dump();
+    }
 
-    try                                                                           // DB 작업 try
-    {                                                                             // try 시작
-        std::unique_ptr<sql::PreparedStatement> pstmt(                            // prepared statement 생성
-            db.prepareStatement(                                                  // SQL 준비
-                "DELETE FROM blacklist WHERE owner_email = ? AND blocked_email = ?"// DELETE 쿼리
-            )                                                                     // SQL 준비 끝
-        );                                                                        // pstmt 생성 끝
+    try
+    {
+        std::unique_ptr<sql::PreparedStatement> pstmt(
+            db.prepareStatement(
+                "DELETE FROM blacklist WHERE owner_email = ? AND blocked_email = ?"
+            )
+        );
 
-        pstmt->setString(1, owner);                                               // owner_email 바인딩
-        pstmt->setString(2, blocked);                                             // blocked_email 바인딩
+        pstmt->setString(1, owner);
+        pstmt->setString(2, blocked);
 
-        int update_count = pstmt->executeUpdate();                                // DELETE 실행 및 영향 행 수
-        if (update_count == 0)                                                    // 삭제 대상 없음
-        {                                                                         
-            return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_USER_NOT_FOUND).dump(); // 기존 프로토콜 값 재사용
-        }                                                                        
+        int update_count = pstmt->executeUpdate();
 
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS).dump();  // 성공 응답
-    }                                                                             
-    catch (sql::SQLException&)                                                    // SQL 예외 처리
-    {                                                                             
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류 응답
-    }                                                                            
-}                                                                                 
+        if (update_count == 0)
+        {
+            return make_response(PKT_BLACKLIST_REQ,
+                                 VALUE_ERR_USER_NOT_FOUND).dump();
+        }
+
+        return make_response(PKT_BLACKLIST_REQ,
+                             VALUE_SUCCESS).dump();
+    }
+    catch (sql::SQLException&)
+    {
+        return make_response(PKT_BLACKLIST_REQ,
+                             VALUE_ERR_DB).dump();
+    }
+}                                                                  
 
 /**
  * 서버 측 블랙리스트 목록 조회 (SELECT)                                          
  * payload: { "action":"list" }                                                    // payload 설명
  */
-std::string handle_server_blacklist_list(const json& req, sql::Connection& db)    // 블랙리스트 목록 핸들러
-{                                                                                 
-    std::string owner = get_session_email_from_sock(g_current_sock);              // 세션에서 owner 확정
-    if (owner.empty())                                                           // 세션 없으면
-    {                                                                             
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션 오류 응답
-    }                                                                            
+std::string handle_server_blacklist_list(const json& req, sql::Connection& db)
+{
+    std::string owner = get_session_email_from_sock(g_current_sock);
+    if (owner.empty())
+    {
+        return make_response(PKT_BLACKLIST_REQ,
+                             VALUE_ERR_SESSION).dump();
+    }
 
-    try                                                                           // DB 작업 try
-    {                                                                             // try 시작
-        std::unique_ptr<sql::PreparedStatement> pstmt(                            // prepared statement 생성
-            db.prepareStatement(                                                  // SQL 준비
-                "SELECT blocked_email, created_at FROM blacklist WHERE owner_email = ?" // SELECT 쿼리
-            )                                                                     // SQL 준비 끝
-        );                                                                        // pstmt 생성 끝
+    try
+    {
+        std::unique_ptr<sql::PreparedStatement> pstmt(
+            db.prepareStatement(
+                "SELECT blocked_email, created_at FROM blacklist WHERE owner_email = ?"
+            )
+        );
 
-        pstmt->setString(1, owner);                                               // owner_email 바인딩
-        std::unique_ptr<sql::ResultSet> res(pstmt->executeQuery());               // SELECT 실행
+        pstmt->setString(1, owner);
+        std::unique_ptr<sql::ResultSet> res(pstmt->executeQuery());
 
-        json list = json::array();                                                // 결과 리스트 배열 생성
-        while (res->next())                                                       // 결과 순회
-        {                                                                         // 루프 시작
-            json item;                                                            // 항목 json 생성
-            item["blocked_email"] = std::string(res->getString("blocked_email").c_str()); // blocked_email 저장
-            item["created_at"] = std::string(res->getString("created_at").c_str());       // created_at 저장
-            list.push_back(item);                                                 // 배열에 추가
-        }                                                                         // 루프 끝
+        json list = json::array();
 
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS, list).dump(); // 성공 + 목록 반환
-    }                                                                             
-    catch (sql::SQLException&)                                                    // SQL 예외 처리
-    {                                                                             
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류 응답
-    }                                                                            
-}                                                                                 
+        while (res->next())
+        {
+            list.push_back({
+                {"blocked_email", res->getString("blocked_email").c_str()},
+                {"created_at",    res->getString("created_at").c_str()}
+            });
+        }
 
+        json response = make_response(PKT_BLACKLIST_REQ,
+                                      VALUE_SUCCESS);
+
+        response["payload"] = list;
+
+        return response.dump();
+    }
+    catch (sql::SQLException&)
+    {
+        return make_response(PKT_BLACKLIST_REQ,
+                             VALUE_ERR_DB).dump();
+    }
+}
 /**
  * 통합 핸들러: PKT_BLACKLIST_REQ 분기                                             
  * payload.action: "add" | "remove" | "list"                                      
  */
-std::string handle_server_blacklist_process(const json& req, sql::Connection& db) // 통합 처리 핸들러
-{                                                                                 
-    json payload = get_payload(req);                                              // payload 추출
-    std::string action = payload.value("action", "");                             // action 추출
+std::string handle_server_blacklist_process(const json& req, sql::Connection& db)
+{
+    json payload = get_payload(req);
+    std::string action = payload.value("action", "");
 
-    if (action == "add")                                                          // add 분기
-    {                                                                             
-        return handle_server_blacklist_add(req, db);                              // add 처리
-    }                                                                            
-    if (action == "remove")                                                       // remove 분기
-    {                                                                             
-        return handle_server_blacklist_remove(req, db);                           // remove 처리
-    }                                                                            
-    if (action == "list")                                                         // list 분기
-    {                                                                             
-        return handle_server_blacklist_list(req, db);                             // list 처리
-    }                                                                            
+    if (action == "add")
+        return handle_server_blacklist_add(req, db);
 
-    return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_INVALID_PACKET).dump(); // 잘못된 action 응답
-}                                                                                 
+    if (action == "remove")
+        return handle_server_blacklist_remove(req, db);
+
+    if (action == "list")
+        return handle_server_blacklist_list(req, db);
+
+    return make_response(PKT_BLACKLIST_REQ,
+                         VALUE_ERR_INVALID_PACKET).dump();
+}
