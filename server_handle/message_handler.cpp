@@ -449,3 +449,143 @@ std::string handle_msg_read(const json& req, sql::Connection& db)
         return res.dump();
     }
 }
+// ============================================================
+// handle_msg_setting_get
+// PKT_MSG_SETTING_GET_REQ = 0x0015
+// ============================================================
+std::string handle_msg_setting_get(const json& req, sql::Connection& db)
+{
+    try
+    {
+        // 1. 세션 확인
+        std::string email = get_session_email(g_current_sock);
+        if (email.empty())
+        {
+            json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
+        }
+
+        // 2. user_no 조회
+        unsigned int user_no = get_user_no(db, email);
+        if (user_no == 0)
+        {
+            json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_ERR_DB);
+            res["msg"] = "사용자 정보 없음";
+            return res.dump();
+        }
+
+        // 3. DB 조회
+        std::unique_ptr<sql::PreparedStatement> ps(
+            db.prepareStatement(
+                "SELECT prefix, suffix "
+                "FROM message_settings "
+                "WHERE user_no = ? LIMIT 1"
+            )
+        );
+        ps->setUInt(1, user_no);
+
+        std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
+
+        std::string prefix = "";
+        std::string suffix = "";
+
+        if (rs->next())
+        {
+            if (!rs->isNull("prefix"))
+                prefix = rs->getString("prefix");
+
+            if (!rs->isNull("suffix"))
+                suffix = rs->getString("suffix");
+        }
+
+        // 4. 응답
+        json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_SUCCESS);
+        res["msg"] = "조회 성공";
+        res["payload"] = {
+            {"prefix", prefix},
+            {"suffix", suffix}
+        };
+
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (...)
+    {
+        json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
+        return res.dump();
+    }
+}
+// ============================================================
+// handle_msg_setting_update
+// PKT_MSG_SETTING_UPDATE_REQ = 0x0016
+// payload:
+//   { "prefix": "...", "suffix": "..." }
+// ============================================================
+std::string handle_msg_setting_update(const json& req, sql::Connection& db)
+{
+    try
+    {
+        // 1. 세션 확인
+        std::string email = get_session_email(g_current_sock);
+        if (email.empty())
+        {
+            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_SESSION);
+            res["msg"] = "로그인 세션 없음";
+            return res.dump();
+        }
+
+        // 2. user_no 조회
+        unsigned int user_no = get_user_no(db, email);
+        if (user_no == 0)
+        {
+            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+            res["msg"] = "사용자 정보 없음";
+            return res.dump();
+        }
+
+        // 3. payload 파싱
+        json payload = get_payload(req);
+
+        std::string prefix = payload.value("prefix", "");
+        std::string suffix = payload.value("suffix", "");
+
+        // 4. UPSERT
+        std::unique_ptr<sql::PreparedStatement> ps(
+            db.prepareStatement(
+                "INSERT INTO message_settings (user_no, prefix, suffix) "
+                "VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE "
+                "prefix = VALUES(prefix), "
+                "suffix = VALUES(suffix)"
+            )
+        );
+
+        ps->setUInt(1, user_no);
+        ps->setString(2, prefix);
+        ps->setString(3, suffix);
+        ps->executeUpdate();
+
+        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_SUCCESS);
+        res["msg"] = "설정 저장 완료";
+        return res.dump();
+    }
+    catch (const sql::SQLException& e)
+    {
+        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+        res["msg"] = std::string("DB 오류: ") + e.what();
+        return res.dump();
+    }
+    catch (...)
+    {
+        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_UNKNOWN);
+        res["msg"] = "알 수 없는 오류";
+        return res.dump();
+    }
+}

@@ -60,7 +60,7 @@ static int connect_server_or_die()                                              
     {                                                                               // if 시작
         std::cerr << "소켓 생성 실패\n";                                            // 에러 출력
         return -1;                                                                  // 실패 반환
-    }                                                                               // if 끝
+    }                                                                               
 
     sockaddr_in serv{};                 // 서버 주소 구조체
     serv.sin_family = AF_INET;          // IPv4
@@ -72,14 +72,14 @@ static int connect_server_or_die()                                              
         std::cerr << "IP 변환 실패\n";                      // 에러 출력
         close(sock);                                        // 소켓 닫기
         return -1;                                          // 실패 반환
-    } // if 끝
+    } 
 
     if (::connect(sock, (sockaddr *)&serv, sizeof(serv)) < 0) // 서버 연결
     {                                                         // if 시작
         std::cerr << "서버 연결 실패\n";                      // 에러 출력
         close(sock);                                          // 소켓 닫기
         return -1;                                            // 실패 반환
-    } // if 끝
+    } 
 
     std::cout << "===============================================================\n"; // UI 라인
     std::cout << " 서버에 연결되었습니다.\n";                                         // UI 문구
@@ -97,7 +97,7 @@ int main()                              // main 시작
     if (sock < 0)                       // 연결 실패면 종료
     {                                   // if 시작
         return 1;                       // 종료 코드 반환
-    } // if 끝
+    } 
 
     bool running = true;    // 프로그램 실행 플래그
     bool logged_in = false; // 로그인 상태 플래그
@@ -117,25 +117,25 @@ int main()                              // main 시작
             {                    // if 시작
                 running = false; // 전체 종료 플래그 끄기
                 break;           // 로그인 루프 탈출
-            } // if 끝
+            } 
 
             if (choice == 0) // 로그인 선택
             {                // if 시작
                 logged_in = handle_login(sock); // 로그인 핸들러 호출
                 continue; // 메뉴 루프 진행
-            } // if 끝
+            } 
 
             if (choice == 1) // 회원가입 선택
             {                // if 시작
                 handle_signup(sock); // 회원가입 핸들러 호출
                 continue; // 다시 로그인/회원가입 메뉴로
-            } // if 끝
+            } 
         } // 로그인/회원가입 루프 끝
 
         if (!running) // 종료 선택이면 빠져나감
         {             // if 시작
             break;    // 메인 루프 탈출
-        } // if 끝
+        } 
 
         // ================================================================= // 2) 로그인 후 메인 메뉴 루프
         while (running && logged_in) // 로그인 상태에서만 반복
@@ -170,7 +170,7 @@ int main()                              // main 시작
             int choice = tui_menu("3LOUD 메인 메뉴", {
                 "파일",
                 msg_label,
-                "개인 설정",
+                "환경 설정",
                 "로그 아웃",
                 "프로그램 종료"
             });
@@ -179,14 +179,14 @@ int main()                              // main 시작
             {                    // if 시작
                 running = false; // 전체 종료 플래그
                 break;           // 메인 메뉴 루프 탈출
-            } // if 끝
+            } 
 
             if (choice == 3)         // 로그아웃
             {                        // if 시작
                 handle_logout(sock); // 로그아웃 훅
                 logged_in = false;   // 로그인 상태 해제
                 break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
-            } // if 끝
+            } 
 
             // ================================================================= // 파일 메뉴
             if (choice == 0) // 파일 메뉴 선택
@@ -199,7 +199,6 @@ int main()                              // main 시작
                         "파일 업로드",
                         "파일 다운로드",
                         "파일 삭제",
-                        "파일 설정"
                         "뒤로가기"
                     });
 
@@ -208,9 +207,7 @@ int main()                              // main 시작
                     if (sub == 1) { handle_file_upload(sock);   continue; }
                     if (sub == 2) { handle_file_download(sock); continue; }
                     if (sub == 3) { handle_file_delete(sock);   continue; }
-                    if (sub == 4) { handle_file_settings_menu(sock);  continue; }
-                }                                                                   // 파일 서브메뉴 루프 끝
-
+                }                    // 파일 서브메뉴 루프 끝
                 continue; // 메인 메뉴로 복귀
             } // 파일 메뉴 if 끝
 
@@ -219,16 +216,30 @@ int main()                              // main 시작
             {                              // if 시작
                 handle_message_menu(sock); // 메시지 메뉴 핸들러
                 continue;                  // 메인 메뉴로 복귀
-            } // if 끝
+            } 
 
             // ================================================================= // 개인 설정 메뉴
             if (choice == 2)               // 개인 설정 메뉴 선택
             {                              // if 시작
-                handle_profile_menu(sock); // 개인설정 핸들러
+                bool back = false;                                                 // 뒤로가기 플래그
+                while (!back && running && logged_in)                              // 로그인 상태에서 반복
+                {
+                    int sub = tui_menu("환경설정", {
+                        "개인 설정",
+                        "파일 설정",
+                        "메시지 설정",
+                        "뒤로가기"
+                    });
+
+                    if (sub == -1 || sub == 3) { back = true; continue; }  // ESC 또는 뒤로가기
+                    if (sub == 0) { handle_profile_menu(sock);     continue; }
+                    if (sub == 1) { handle_file_settings_menu(sock);  continue; }
+                    if (sub == 2) { handle_message_settings(sock);  continue; }
+                }
                 continue;                  // 메인 메뉴로 복귀
-            } // if 끝
-        } // 로그인 후 메인 메뉴 루프 끝
-    } // 메인 루프 끝
+            } 
+        } 
+    } 
 
     close(sock); // 소켓 종료
     return 0;    // 종료 코드

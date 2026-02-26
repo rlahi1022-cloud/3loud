@@ -23,6 +23,8 @@ typedef enum
     PKT_MSG_LIST_REQ = 0x0012,
     PKT_MSG_DELETE_REQ = 0x0013,
     PKT_MSG_READ_REQ = 0x0014,
+    PKT_MSG_SETTING_GET_REQ    = 0x0015,
+    PKT_MSG_SETTING_UPDATE_REQ = 0x0016,
 
     /* ================= 파일 ================= */
     PKT_FILE_UPLOAD_REQ = 0x0020,

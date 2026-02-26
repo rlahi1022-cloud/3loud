@@ -578,6 +578,15 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             case PKT_MSG_READ_REQ:
                 out_payload = handle_msg_read(req, *conn);
                 break;
+
+            case PKT_MSG_SETTING_GET_REQ:
+                out_payload = handle_msg_setting_get(req, *conn);
+                break;
+
+            case PKT_MSG_SETTING_UPDATE_REQ:
+                out_payload = handle_msg_setting_update(req, *conn);
+                break;
+                
             default:
             {                                                                                          // 알 수 없는 타입
                 out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
@@ -586,7 +595,7 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
             } // switch 끝
         }
         catch (const std::exception &e)
-        {                                                                                                                 // 파싱/처리 예외
+        {                                                 
             out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, std::string("Exception: ") + e.what(), json::object()).dump(); // 에러 응답
         } // try-catch 끝
 

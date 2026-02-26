@@ -17,3 +17,9 @@ std::string handle_msg_delete(const json& req, sql::Connection& db);
 
 // 메시지 읽음 처리
 std::string handle_msg_read(const json& req, sql::Connection& db);
+
+// 메시지 설정 조회
+std::string handle_msg_setting_get(const nlohmann::json& req, sql::Connection& db);
+
+// 메시지 설정 업데이트
+std::string handle_msg_setting_update(const nlohmann::json& req, sql::Connection& db);
