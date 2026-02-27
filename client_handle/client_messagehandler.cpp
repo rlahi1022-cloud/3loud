@@ -502,42 +502,157 @@ void handle_message_settings(int sock)
             "뒤로가기"
         });
 
-        if (sel == -1 || sel == 3) return;
+        if (sel == -1 || sel == 3)
+            return;
 
-        // ─────────────────────────────
+        // -------------------------------------------------
         // 1. 기본 메시지 설정 (prefix)
-        // ─────────────────────────────
+        // -------------------------------------------------
         if (sel == 0)
         {
             std::cout << "앞에 자동으로 붙을 메시지 입력: ";
+
+            // tui_menu가 cin >> 를 썼을 가능성 때문에 개행 제거
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
             std::string input;
             std::getline(std::cin, input);
 
-            g_msg_prefix = input;
+            if (input.size() > 255)
+            {
+                tui_menu("255자 초과", {"확인"});
+                continue;
+            }
 
-            tui_menu("기본 메시지 설정 완료", {"확인"});
+            // 서버 요청 생성 (prefix 변경, suffix는 기존 유지)
+            json req = MessageSchema::make_setting_update_req(
+                PKT_MSG_SETTING_UPDATE_REQ,
+                input,
+                g_msg_suffix
+            );
+
+            std::string send_str = req.dump();
+
+            if (packet_send(sock, send_str.c_str(), send_str.size()) <= 0)
+            {
+                tui_menu("서버 전송 실패", {"확인"});
+                continue;
+            }
+
+            char* buf = nullptr;
+            uint32_t len = 0;
+
+            if (packet_recv(sock, &buf, &len) <= 0)
+            {
+                if (buf) free(buf);
+                tui_menu("서버 응답 수신 실패", {"확인"});
+                continue;
+            }
+
+            try
+            {
+                json res = json::parse(std::string(buf, len));
+                free(buf);
+                buf = nullptr;
+
+                int code = res.value("code", VALUE_ERR_UNKNOWN);
+
+                if (code == VALUE_SUCCESS)
+                {
+                    // 성공했을 때만 로컬 반영
+                    g_msg_prefix = input;
+                    tui_menu("기본 메시지 설정 완료", {"확인"});
+                }
+                else
+                {
+                    std::string msg = res.value("msg", "설정 실패");
+                    tui_menu("설정 실패: " + msg, {"확인"});
+                }
+            }
+            catch (...)
+            {
+                if (buf) free(buf);
+                tui_menu("응답 파싱 오류", {"확인"});
+            }
         }
 
-        // ─────────────────────────────
+        // -------------------------------------------------
         // 2. 마무리 메시지 설정 (suffix)
-        // ─────────────────────────────
+        // -------------------------------------------------
         if (sel == 1)
         {
             std::cout << "뒤에 자동으로 붙을 메시지 입력: ";
+
+            // tui_menu가 cin >> 를 썼을 가능성 때문에 개행 제거
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
             std::string input;
             std::getline(std::cin, input);
 
-            g_msg_suffix = input;
+            if (input.size() > 255)
+            {
+                tui_menu("255자 초과", {"확인"});
+                continue;
+            }
 
-            tui_menu("마무리 메시지 설정 완료", {"확인"});
+            // 서버 요청 생성 (suffix 변경, prefix는 기존 유지)
+            json req = MessageSchema::make_setting_update_req(
+                PKT_MSG_SETTING_UPDATE_REQ,
+                g_msg_prefix,
+                input
+            );
+
+            std::string send_str = req.dump();
+
+            if (packet_send(sock, send_str.c_str(), send_str.size()) <= 0)
+            {
+                tui_menu("서버 전송 실패", {"확인"});
+                continue;
+            }
+
+            char* buf = nullptr;
+            uint32_t len = 0;
+
+            if (packet_recv(sock, &buf, &len) <= 0)
+            {
+                if (buf) free(buf);
+                tui_menu("서버 응답 수신 실패", {"확인"});
+                continue;
+            }
+
+            try
+            {
+                json res = json::parse(std::string(buf, len));
+                free(buf);
+                buf = nullptr;
+
+                int code = res.value("code", VALUE_ERR_UNKNOWN);
+
+                if (code == VALUE_SUCCESS)
+                {
+                    // 성공했을 때만 로컬 반영
+                    g_msg_suffix = input;
+                    tui_menu("마무리 메시지 설정 완료", {"확인"});
+                }
+                else
+                {
+                    std::string msg = res.value("msg", "설정 실패");
+                    tui_menu("설정 실패: " + msg, {"확인"});
+                }
+            }
+            catch (...)
+            {
+                if (buf) free(buf);
+                tui_menu("응답 파싱 오류", {"확인"});
+            }
         }
 
-        // ─────────────────────────────
+        // -------------------------------------------------
         // 3. 블랙리스트 관리
-        // ─────────────────────────────
+        // -------------------------------------------------
         if (sel == 2)
         {
-            handle_blacklist_menu(sock);  // 블랙리스트 메뉴 진입
+            handle_blacklist_menu(sock);
         }
     }
 }

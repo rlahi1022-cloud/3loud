@@ -84,7 +84,6 @@ namespace AuthSchema
 // ============================================================
 namespace MessageSchema
 {
-
     // 메시지 전송 payload
     inline json make_send_payload(const std::string &to,
                                   const std::string &content)
@@ -92,13 +91,11 @@ namespace MessageSchema
         json pl;
         pl["to"] = to;           // 받는 사람
         pl["content"] = content; // 메시지 내용
-
         return pl;
     }
 
     // 메시지 전송 요청 패킷
     inline json make_send_req(int type_msg_send_req,
-
                               const std::string &to,
                               const std::string &content)
     {
@@ -161,5 +158,26 @@ namespace MessageSchema
     {
         return make_req(type_msg_delete_req,
                         make_bulk_delete_payload(msg_ids));
+    }
+
+    // ----------------------------------------------------
+    // 메시지 설정 payload
+    // ----------------------------------------------------
+    inline json make_setting_update_payload(const std::string& prefix,
+                                            const std::string& suffix)
+    {
+        json pl;
+        pl["prefix"] = prefix;   // 말머리
+        pl["suffix"] = suffix;   // 말끝머리
+        return pl;
+    }
+
+    // 메시지 설정 요청 패킷
+    inline json make_setting_update_req(int type_msg_setting_update_req,
+                                        const std::string& prefix,
+                                        const std::string& suffix)
+    {
+        return make_req(type_msg_setting_update_req,
+                        make_setting_update_payload(prefix, suffix));
     }
 }
