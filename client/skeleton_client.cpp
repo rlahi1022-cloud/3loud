@@ -40,8 +40,8 @@ extern "C"
 #include "file_settings.hpp"
 #include "../client_handle/admin_client.hpp"
 
-const char *SERVER_IP = "10.10.20.108"; // 서버 IP(테스트용)
-static const int SERVER_PORT = 5012;    // 서버 포트(프로젝트 값으로 맞추기)
+const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
+static const int SERVER_PORT = 5011; // 서버 포트(프로젝트 값으로 맞추기)
 
 std::string g_current_user_email;
 extern std::string g_msg_prefix;
@@ -236,6 +236,36 @@ int main()                              // main 시작
                 {
                     load_receiver_history(); // 수신자 이력 로드
                     start_poll_thread();     // 실시간 폴링 시작 (요구사항 9)
+                    // [추가] 로그인 직후 메시지 설정(prefix, suffix) 동기화
+                    // =======================================================
+                    json sync_req = make_request(PKT_MSG_SETTING_GET_REQ);
+                    std::string sync_str = sync_req.dump();
+
+                    if (packet_send(sock, sync_str.c_str(), (uint32_t)sync_str.size()) >= 0)
+                    {
+                        char *sync_buf = nullptr;
+                        uint32_t sync_len = 0;
+                        if (packet_recv(sock, &sync_buf, &sync_len) >= 0)
+                        {
+                            try
+                            {
+                                json sync_res = json::parse(std::string(sync_buf, sync_len));
+                                if (sync_res.value("code", -1) == VALUE_SUCCESS)
+                                {
+                                    auto &payload = sync_res["payload"];
+                                    // 서버에서 받아온 값으로 전역 변수 초기화
+                                    g_msg_prefix = payload.value("prefix", "");
+                                    g_msg_suffix = payload.value("suffix", "");
+                                }
+                            }
+                            catch (...)
+                            {
+                                // 파싱 실패 시 조용히 넘김 (기본값인 빈 문자열 유지)
+                            }
+                            if (sync_buf)
+                                free(sync_buf);
+                        }
+                    }
                 }
                 continue; // 메뉴 루프 진행
             }

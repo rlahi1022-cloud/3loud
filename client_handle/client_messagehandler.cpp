@@ -26,7 +26,6 @@
 #include "protocol_schema.h"
 #include "tui.hpp"
 #include "client_blacklisthandler.hpp"
-#include "file_client.hpp"
 
 using json = nlohmann::json;
 
@@ -36,11 +35,11 @@ using json = nlohmann::json;
 
 // 로그인한 사용자 이메일
 extern std::string g_current_user_email;
-extern std::atomic<bool> g_has_unread;  // 폴링 스레드가 갱신하는 unread 플래그
+extern std::atomic<bool> g_has_unread; // 폴링 스레드가 갱신하는 unread 플래그
 
 // 메시지 설정 (13-2-1, 13-2-2): 설정 메뉴에서 변경 가능
-std::string g_msg_prefix;   // 기본 메시지
-std::string g_msg_suffix;   // 마무리 메시지
+std::string g_msg_prefix; // 기본 메시지
+std::string g_msg_suffix; // 마무리 메시지
 
 // 수신자 이력 (11-1-2): 클라이언트 로컬, 최대 10개
 static std::vector<std::string> g_receiver_history;
@@ -55,12 +54,14 @@ extern void clear_stdin_line();
 // ──────────────────────────────────────────────
 static std::string history_file_path()
 {
-    const char* home = getenv("HOME");
-    if (!home) home = "/tmp";
+    const char *home = getenv("HOME");
+    if (!home)
+        home = "/tmp";
     std::string safe_email = g_current_user_email;
     // 파일명에 쓸 수 없는 문자 치환
-    for (char& c : safe_email)
-        if (c == '@' || c == '.' || c == '/') c = '_';
+    for (char &c : safe_email)
+        if (c == '@' || c == '.' || c == '/')
+            c = '_';
     return std::string(home) + "/.3loud_recv_" + safe_email + ".txt";
 }
 
@@ -85,20 +86,19 @@ void load_receiver_history()
 static void save_receiver_history()
 {
     std::ofstream f(history_file_path(), std::ios::trunc);
-    for (auto& e : g_receiver_history)
+    for (auto &e : g_receiver_history)
         f << e << "\n";
 }
 
 // ──────────────────────────────────────────────
 // 유틸: 수신자 이력에 추가 (중복 제거, 최신 우선, 최대 10개) + 파일 저장
 // ──────────────────────────────────────────────
-static void push_receiver_history(const std::string& email)
+static void push_receiver_history(const std::string &email)
 {
     g_receiver_history.erase(
         std::remove(g_receiver_history.begin(),
                     g_receiver_history.end(), email),
-        g_receiver_history.end()
-    );
+        g_receiver_history.end());
     g_receiver_history.insert(g_receiver_history.begin(), email);
     if (g_receiver_history.size() > 10)
         g_receiver_history.resize(10);
@@ -114,25 +114,26 @@ static void push_receiver_history(const std::string& email)
 //   - Enter: 확정
 //   - ESC: 취소 → 빈 문자열 반환
 // ──────────────────────────────────────────────
-static std::string input_with_history(const std::string& prompt)
+static std::string input_with_history(const std::string &prompt)
 {
-    std::string buf;          // 현재 입력 버퍼
-    std::string saved;        // ↑ 누르기 전 원본 보존
-    int hist_idx = -1;        // -1 = 직접 입력 중
+    std::string buf;   // 현재 입력 버퍼
+    std::string saved; // ↑ 누르기 전 원본 보존
+    int hist_idx = -1; // -1 = 직접 입력 중
 
     // raw 모드 진입
     termios old_t, raw_t;
     tcgetattr(STDIN_FILENO, &old_t);
     raw_t = old_t;
     raw_t.c_lflag &= ~(ICANON | ECHO);
-    raw_t.c_cc[VMIN]  = 1;
+    raw_t.c_cc[VMIN] = 1;
     raw_t.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSANOW, &raw_t);
 
     // 프롬프트 출력
     std::cout << prompt << std::flush;
 
-    auto redraw = [&]() {
+    auto redraw = [&]()
+    {
         // 현재 줄 지우고 다시 그리기
         std::cout << "\r\033[2K" << prompt << buf << std::flush;
     };
@@ -144,22 +145,23 @@ static std::string input_with_history(const std::string& prompt)
     {
         int c = getchar();
 
-        if (c == '\n' || c == '\r')   // Enter
+        if (c == '\n' || c == '\r') // Enter
         {
             result = buf;
             break;
         }
-        else if (c == 27)            // ESC 시퀀스
+        else if (c == 27) // ESC 시퀀스
         {
             int c2 = getchar();
             if (c2 == '[')
             {
                 int c3 = getchar();
-                if (c3 == 'A')       // ↑ : 이력 이전
+                if (c3 == 'A') // ↑ : 이력 이전
                 {
                     if (!g_receiver_history.empty())
                     {
-                        if (hist_idx == -1) saved = buf;
+                        if (hist_idx == -1)
+                            saved = buf;
                         hist_idx = std::min(hist_idx + 1,
                                             (int)g_receiver_history.size() - 1);
                         buf = g_receiver_history[hist_idx];
@@ -181,7 +183,7 @@ static std::string input_with_history(const std::string& prompt)
                     redraw();
                 }
             }
-            else if (c2 == 27 || c2 == EOF)  // 단독 ESC
+            else if (c2 == 27 || c2 == EOF) // 단독 ESC
             {
                 cancelled = true;
                 break;
@@ -189,19 +191,24 @@ static std::string input_with_history(const std::string& prompt)
         }
         else if (c == 127 || c == 8) // Backspace
         {
-            if (!buf.empty()) { buf.pop_back(); redraw(); }
+            if (!buf.empty())
+            {
+                buf.pop_back();
+                redraw();
+            }
         }
-        else if (c >= 32)            // 일반 문자
+        else if (c >= 32) // 일반 문자
         {
             buf += (char)c;
-            hist_idx = -1;           // 직접 입력 시 이력 탐색 리셋
+            hist_idx = -1; // 직접 입력 시 이력 탐색 리셋
             redraw();
         }
     }
 
     // raw 모드 복원
     tcsetattr(STDIN_FILENO, TCSANOW, &old_t);
-    std::cout << "\n" << std::flush;
+    std::cout << "\n"
+              << std::flush;
 
     return cancelled ? "" : result;
 }
@@ -209,13 +216,13 @@ static std::string input_with_history(const std::string& prompt)
 // ──────────────────────────────────────────────
 // 유틸: 패킷 전송 + 응답 수신 (공통)
 // ──────────────────────────────────────────────
-static json send_recv(int sock, const json& req)
+static json send_recv(int sock, const json &req)
 {
     std::string send_str = req.dump();
     if (packet_send(sock, send_str.c_str(), (uint32_t)send_str.size()) < 0)
         return json{{"code", VALUE_ERR_UNKNOWN}, {"msg", "전송 실패"}};
 
-    char*    recv_buf = nullptr;
+    char *recv_buf = nullptr;
     uint32_t recv_len = 0;
 
     if (packet_recv(sock, &recv_buf, &recv_len) < 0)
@@ -234,7 +241,8 @@ static void handle_message_send_ui(int sock)
     // ── 수신자 입력: ↑↓ 키로 이력 탐색 (11-1-2) ──
     std::string receiver = input_with_history("받는 사람 이메일 (↑↓ 이력): ");
 
-    if (receiver.empty()) return;   // ESC 또는 빈 입력
+    if (receiver.empty())
+        return; // ESC 또는 빈 입력
 
     // ── 메시지 입력 ──
     std::cout << "내용: " << std::flush;
@@ -243,19 +251,21 @@ static void handle_message_send_ui(int sock)
 
     // ── 기본/마무리 메시지 조합 (13-2-1, 13-2-2) ──
     std::string full_content;
-    if (!g_msg_prefix.empty()) full_content += g_msg_prefix;
+    if (!g_msg_prefix.empty())
+        full_content += g_msg_prefix;
     full_content += content;
-    if (!g_msg_suffix.empty()) full_content += g_msg_suffix;
+    if (!g_msg_suffix.empty())
+        full_content += g_msg_suffix;
 
     // ── 길이 검증 (11-1-3): tui_menu로 안내 ──
     if (full_content.size() > 1024)
     {
         tui_menu(
             "전송 불가: 1024 bytes 초과\n"
-            "  현재 크기: " + std::to_string(full_content.size()) + " bytes\n"
-            "  (기본/마무리 메시지 포함)",
-            {"확인"}
-        );
+            "  현재 크기: " +
+                std::to_string(full_content.size()) + " bytes\n"
+                                                      "  (기본/마무리 메시지 포함)",
+            {"확인"});
         return;
     }
 
@@ -264,7 +274,8 @@ static void handle_message_send_ui(int sock)
         "수신자: " + receiver + "\n\n" + full_content;
 
     int confirm = tui_menu(preview, {"취소", "전송"});
-    if (confirm != 1) return;   // 취소 또는 ESC
+    if (confirm != 1)
+        return; // 취소 또는 ESC
 
     // ── 수신자 이력에 추가 ──
     push_receiver_history(receiver);
@@ -286,7 +297,7 @@ static void handle_message_send_ui(int sock)
 // ============================================================
 static bool handle_message_list_ui(int sock)
 {
-    int  page        = 0;
+    int page = 0;
     bool last_unread = false;
 
     while (true)
@@ -302,63 +313,80 @@ static bool handle_message_list_ui(int sock)
             return false;
         }
 
-        auto& payload    = res["payload"];
-        auto  msgs       = payload["messages"];   // copy (참조면 루프 중 수정 위험)
-        bool  has_unread = payload.value("has_unread", false);
+        auto &payload = res["payload"];
+        auto msgs = payload["messages"]; // copy (참조면 루프 중 수정 위험)
+        bool has_unread = payload.value("has_unread", false);
         last_unread = has_unread;
 
         if (msgs.empty())
         {
-            if (page > 0) { page--; continue; }
+            if (page > 0)
+            {
+                page--;
+                continue;
+            }
             tui_menu("메시지 없음", {"확인"});
             return last_unread;
         }
 
         // ── tui_menu용 항목 생성 ──
         std::vector<std::string> items;
-        for (auto& m : msgs)
+        for (auto &m : msgs)
         {
-            bool        is_read = m.value("is_read", false);
-            std::string mark    = is_read ? "    " : "[NEW]";
-            std::string date    = m.value("sent_at", "");
-            if (date.size() > 16) date = date.substr(0, 16);  // "YYYY-MM-DD HH:MM"
-            std::string from    = m.value("from_email", "");
-            std::string body    = m.value("content", "");
-            if (body.size() > 30) body = body.substr(0, 30) + "...";
+            bool is_read = m.value("is_read", false);
+            std::string mark = is_read ? "    " : "[NEW]";
+            std::string date = m.value("sent_at", "");
+            if (date.size() > 16)
+                date = date.substr(0, 16); // "YYYY-MM-DD HH:MM"
+            std::string from = m.value("from_email", "");
+            std::string body = m.value("content", "");
+            if (body.size() > 30)
+                body = body.substr(0, 30) + "...";
 
             items.push_back(mark + " [" + date + "] " + from + "  " + body);
         }
 
         // 페이지 네비게이션 항목 추가
-        if (page > 0)        items.push_back("◀ 이전 페이지");
+        if (page > 0)
+            items.push_back("◀ 이전 페이지");
         items.push_back("▶ 다음 페이지");
         items.push_back("뒤로가기");
 
         std::string title = "메시지 목록 (페이지 " + std::to_string(page + 1) + ")";
-        if (has_unread) title += "  \033[33m[!] 읽지 않은 메시지 있음\033[0m";
+        if (has_unread)
+            title += "  \033[33m[!] 읽지 않은 메시지 있음\033[0m";
 
         int sel = tui_menu(title, items);
 
         // ── 선택 처리 ──
-        int msg_count  = (int)msgs.size();
-        int prev_idx   = (page > 0) ? msg_count       : -1;
-        int next_idx   = (page > 0) ? msg_count + 1   : msg_count;
-        int back_idx   = (page > 0) ? msg_count + 2   : msg_count + 1;
+        int msg_count = (int)msgs.size();
+        int prev_idx = (page > 0) ? msg_count : -1;
+        int next_idx = (page > 0) ? msg_count + 1 : msg_count;
+        int back_idx = (page > 0) ? msg_count + 2 : msg_count + 1;
 
-        if (sel == -1 || sel == back_idx) break;          // ESC / 뒤로가기
-        if (sel == next_idx) { page++; continue; }        // 다음 페이지
-        if (page > 0 && sel == prev_idx) { page--; continue; }  // 이전 페이지
+        if (sel == -1 || sel == back_idx)
+            break; // ESC / 뒤로가기
+        if (sel == next_idx)
+        {
+            page++;
+            continue;
+        } // 다음 페이지
+        if (page > 0 && sel == prev_idx)
+        {
+            page--;
+            continue;
+        } // 이전 페이지
 
         if (sel >= 0 && sel < msg_count)
         {
             // 메시지 상세 보기 + 읽음 처리
-            auto& m = msgs[sel];
-            int   msg_id  = m.value("msg_id", 0);
-            bool  is_read = m.value("is_read", false);
+            auto &m = msgs[sel];
+            int msg_id = m.value("msg_id", 0);
+            bool is_read = m.value("is_read", false);
 
             std::string detail =
                 "From: " + m.value("from_email", "") + "\n" +
-                "시간: " + m.value("sent_at", "")    + "\n\n" +
+                "시간: " + m.value("sent_at", "") + "\n\n" +
                 m.value("content", "");
 
             tui_menu(detail, {"확인"});
@@ -368,7 +396,7 @@ static bool handle_message_list_ui(int sock)
             {
                 json read_req = MessageSchema::make_read_req(PKT_MSG_READ_REQ, msg_id);
                 send_recv(sock, read_req);
-                last_unread = false;  // 낙관적 업데이트
+                last_unread = false; // 낙관적 업데이트
             }
         }
     }
@@ -398,13 +426,15 @@ static void handle_message_delete_ui(int sock)
 
     // ── tui_menu용 항목 생성 ──
     std::vector<std::string> items;
-    for (auto& m : msgs)
+    for (auto &m : msgs)
     {
         std::string date = m.value("sent_at", "");
-        if (date.size() > 16) date = date.substr(0, 16);
+        if (date.size() > 16)
+            date = date.substr(0, 16);
         std::string from = m.value("from_email", "");
         std::string body = m.value("content", "");
-        if (body.size() > 30) body = body.substr(0, 30) + "...";
+        if (body.size() > 30)
+            body = body.substr(0, 30) + "...";
         items.push_back("[" + date + "] " + from + "  " + body);
     }
     items.push_back("취소");
@@ -412,24 +442,27 @@ static void handle_message_delete_ui(int sock)
     int sel = tui_menu("삭제할 메시지 선택", items);
 
     int cancel_idx = (int)msgs.size();
-    if (sel == -1 || sel == cancel_idx) return;
-    if (sel < 0 || sel >= (int)msgs.size()) return;
+    if (sel == -1 || sel == cancel_idx)
+        return;
+    if (sel < 0 || sel >= (int)msgs.size())
+        return;
 
-    int         msg_id = msgs[sel].value("msg_id", 0);
-    std::string from   = msgs[sel].value("from_email", "");
-    std::string body   = msgs[sel].value("content", "");
-    if (body.size() > 40) body = body.substr(0, 40) + "...";
+    int msg_id = msgs[sel].value("msg_id", 0);
+    std::string from = msgs[sel].value("from_email", "");
+    std::string body = msgs[sel].value("content", "");
+    if (body.size() > 40)
+        body = body.substr(0, 40) + "...";
 
     // ── 삭제 확인 ──
     int confirm = tui_menu(
         "삭제하시겠습니까?\n  " + from + "  " + body,
-        {"취소", "삭제"}
-    );
-    if (confirm != 1) return;
+        {"취소", "삭제"});
+    if (confirm != 1)
+        return;
 
     // ── 삭제 요청 ──
     json del_req;
-    del_req["type"]    = PKT_MSG_DELETE_REQ;
+    del_req["type"] = PKT_MSG_DELETE_REQ;
     del_req["payload"] = {{"msg_ids", json::array({msg_id})}};
 
     json del_res = send_recv(sock, del_req);
@@ -440,7 +473,6 @@ static void handle_message_delete_ui(int sock)
         tui_menu("삭제 실패: " + del_res.value("msg", "오류"), {"확인"});
 }
 
-
 // ============================================================
 // 메시지 메뉴 (10-1: 안읽은 메시지 있으면 표시)
 // ============================================================
@@ -449,20 +481,31 @@ void handle_message_menu(int sock)
     while (true)
     {
         // ── 메시지 메뉴: items_fn으로 g_has_unread 실시간 반영 ──
-        auto msg_items_fn = []() -> std::vector<std::string> {
+        auto msg_items_fn = []() -> std::vector<std::string>
+        {
             std::string read_label = g_has_unread.load()
-                ? "메시지 확인하기  \033[33m[!]\033[0m"
-                : "메시지 확인하기";
-            return { "메시지 보내기", read_label, "메시지 삭제하기", "뒤로가기" };
+                                         ? "메시지 확인하기  \033[33m[!]\033[0m"
+                                         : "메시지 확인하기";
+            return {"메시지 보내기", read_label, "메시지 삭제하기", "뒤로가기"};
         };
 
         int sel = tui_menu("메시지 메뉴", msg_items_fn(), msg_items_fn);
 
-        if (sel == -1 || sel == 3) return;   // ESC 또는 뒤로가기
+        if (sel == -1 || sel == 3)
+            return; // ESC 또는 뒤로가기
 
-        if (sel == 0) { handle_message_send_ui(sock);   }
-        if (sel == 1) { handle_message_list_ui(sock);   }
-        if (sel == 2) { handle_message_delete_ui(sock); }
+        if (sel == 0)
+        {
+            handle_message_send_ui(sock);
+        }
+        if (sel == 1)
+        {
+            handle_message_list_ui(sock);
+        }
+        if (sel == 2)
+        {
+            handle_message_delete_ui(sock);
+        }
     }
 }
 
@@ -476,16 +519,26 @@ void handle_blacklist_menu(int sock)
             "블랙리스트 확인하기",
             "블랙리스트 추가하기",
             "블랙리스트 삭제하기",
-            "뒤로가기"
-        };
+            "뒤로가기"};
 
         int sel = tui_menu("블랙리스트 메뉴", items);
 
-        if (sel == -1 || sel == 3) return;   // ESC 또는 뒤로가기
+        if (sel == -1 || sel == 3)
+            return; // ESC 또는 뒤로가기
 
-        if (sel == 0) { handle_blacklist_list(sock); continue; }
-        if (sel == 1) { handle_blacklist_add(sock); }
-        if (sel == 2) { handle_blacklist_remove(sock); }
+        if (sel == 0)
+        {
+            handle_blacklist_list(sock);
+            continue;
+        }
+        if (sel == 1)
+        {
+            handle_blacklist_add(sock);
+        }
+        if (sel == 2)
+        {
+            handle_blacklist_remove(sock);
+        }
     }
 }
 
@@ -496,12 +549,10 @@ void handle_message_settings(int sock)
 {
     while (true)
     {
-        int sel = tui_menu("메시지 설정", {
-            "기본 메시지 설정",
-            "마무리 메시지 설정",
-            "블랙리스트 관리",
-            "뒤로가기"
-        });
+        int sel = tui_menu("메시지 설정", {"기본 메시지 설정",
+                                           "마무리 메시지 설정",
+                                           "블랙리스트 관리",
+                                           "뒤로가기"});
 
         if (sel == -1 || sel == 3)
             return;
@@ -509,11 +560,14 @@ void handle_message_settings(int sock)
         // -------------------------------------------------
         // 1. 기본 메시지 설정 (prefix)
         // -------------------------------------------------
+        // -------------------------------------------------
+        // 1. 기본 메시지 설정 (prefix)
+        // -------------------------------------------------
         if (sel == 0)
         {
             std::cout << "앞에 자동으로 붙을 메시지 입력: ";
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
+            // 🚨 버퍼를 먹어버리는 cin.ignore 삭제!
             std::string input;
             std::getline(std::cin, input);
 
@@ -523,25 +577,20 @@ void handle_message_settings(int sock)
                 continue;
             }
 
-            // -------------------------------
-            // SAVE_REQ 로 직접 생성
-            // -------------------------------
+            // 💡 확실하게 서버가 기대하는 "prefix", "suffix" 키값으로 직접 JSON 조립
             json req;
-            req["type"] = PKT_MSG_SETTING_SAVE_REQ;
+            req["type"] = PKT_MSG_SETTING_UPDATE_REQ;
             req["payload"] = {
-                {"user_no", g_user_no}, 
                 {"prefix", input},
-                {"suffix", g_msg_suffix}
-            };
+                {"suffix", g_msg_suffix}};
 
             json res = send_recv(sock, req);
 
             int code = res.value("code", VALUE_ERR_UNKNOWN);
-
             if (code == VALUE_SUCCESS)
             {
-                g_msg_prefix = input;
-                tui_menu("기본 메시지 설정이 저장되었습니다.", {"확인"});
+                g_msg_prefix = input; // 로컬 변수 갱신
+                tui_menu("기본 메시지 설정 완료", {"확인"});
             }
             else
             {
@@ -556,8 +605,8 @@ void handle_message_settings(int sock)
         if (sel == 1)
         {
             std::cout << "뒤에 자동으로 붙을 메시지 입력: ";
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
+            // 🚨 여기서도 cin.ignore 삭제!
             std::string input;
             std::getline(std::cin, input);
 
@@ -567,25 +616,20 @@ void handle_message_settings(int sock)
                 continue;
             }
 
-            // -------------------------------
-            // SAVE_REQ 로 직접 생성
-            // -------------------------------
+            // 💡 직접 JSON 조립
             json req;
-            req["type"] = PKT_MSG_SETTING_SAVE_REQ;
+            req["type"] = PKT_MSG_SETTING_UPDATE_REQ;
             req["payload"] = {
-                {"user_no", g_user_no},  
                 {"prefix", g_msg_prefix},
-                {"suffix", input}
-            };
+                {"suffix", input}};
 
             json res = send_recv(sock, req);
 
             int code = res.value("code", VALUE_ERR_UNKNOWN);
-
             if (code == VALUE_SUCCESS)
             {
-                g_msg_suffix = input;
-                tui_menu("마무리 메시지 설정이 저장되었습니다.", {"확인"});
+                g_msg_suffix = input; // 로컬 변수 갱신
+                tui_menu("마무리 메시지 설정 완료", {"확인"});
             }
             else
             {
