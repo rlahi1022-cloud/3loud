@@ -29,7 +29,13 @@ void admin_show_user_list(int sock, bool only_inactive)
         json users = res["payload"]["users"];
         if (users.empty())
         {
-            std::cout << "\n[안내] 대상 유저가 없습니다.\n계속하려면 Enter...";
+            tui_detail::clear();
+            std::cout << "==========================================\n";
+            std::cout << "  " << (only_inactive ? "비활성화된 유저 목록" : "전체 유저 목록") << "\n";
+            std::cout << "------------------------------------------\n";
+            std::cout << "  해당 조건에 맞는 유저가 없습니다.\n";
+            std::cout << "==========================================\n";
+            std::cout << "계속하려면 Enter...";
             std::cin.get();
             return;
         }
@@ -103,6 +109,11 @@ void admin_show_user_list(int sock, bool only_inactive)
                 state_req["payload"] = {{"target_no", target_no}, {"is_active", 0}};
                 send_json(sock, state_req);
                 recv_json(sock, state_req);
+
+                // [추가] 성공 메시지 출력 후 대기
+                std::cout << "\n\n  >> \033[32m[성공]\033[0m 계정을 비활성화했습니다.\n  아무 키나 누르세요...";
+                fflush(stdout);
+                tui_detail::read_key(); // 사용자가 키를 누를 때까지 대기
                 break;
             }
             if ((k == 'u' || k == 'U') && info["is_active"] == 0)
@@ -111,13 +122,21 @@ void admin_show_user_list(int sock, bool only_inactive)
                 state_req["payload"] = {{"target_no", target_no}, {"is_active", 1}};
                 send_json(sock, state_req);
                 recv_json(sock, state_req);
+
+                // [추가] 성공 메시지 출력 후 대기
+                std::cout << "\n\n  >> \033[32m[성공]\033[0m 계정을 활성화했습니다.\n  아무 키나 누르세요...";
+                fflush(stdout);
+                tui_detail::read_key(); // 사용자가 키를 누를 때까지 대기
                 break;
             }
-        }
+        } // <-- [내부 루프] 단축키 입력 while 문 끝
+
+        // ★ 터미널 복구 코드가 반드시 바깥 루프가 끝나기 전에 있어야 합니다!
         tui_detail::show_cursor();
         tui_detail::restore_raw(old_t);
-    }
-}
+
+    } // <-- [바깥 루프] 전체 유저 목록 while 문 끝
+} // <-- admin_show_user_list 함수 끝
 
 void admin_broadcast_message(int sock)
 {
