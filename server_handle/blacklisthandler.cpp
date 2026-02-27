@@ -55,12 +55,12 @@ std::string handle_server_blacklist_add(const json& req, sql::Connection& db)   
 
     if (!get_owner_and_blocked(req, owner, blocked))                              // 세션/입력 검증
     {
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션 오류
+        return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션 오류
     }
 
     if (owner == blocked)                                                        // 자기 자신 차단 방지
     {
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_INVALID_PACKET).dump(); // 잘못된 요청
+        return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_INVALID_PACKET).dump(); // 잘못된 요청
     }
 
     try                                                                           // DB 작업
@@ -76,15 +76,15 @@ std::string handle_server_blacklist_add(const json& req, sql::Connection& db)   
         pstmt->setString(2, blocked);                                             // blocked_email 바인딩
         pstmt->executeUpdate();                                                   // INSERT 실행
 
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS).dump();  // 성공 응답
+        return make_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS).dump();  // 성공 응답
     }
     catch (sql::SQLException& e)                                                  // SQL 예외
     {
         if (e.getErrorCode() == 1062)                                             // 중복(UNIQUE) 에러
         {
-            return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_ID_DUPLICATE).dump(); // 중복
+            return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_ID_DUPLICATE).dump(); // 중복
         }
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류
+        return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류
     }
 }
 
@@ -95,7 +95,7 @@ std::string handle_server_blacklist_remove(const json& req, sql::Connection& db)
 
     if (!get_owner_and_blocked(req, owner, blocked))                              // 세션/입력 검증
     {
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션 오류
+        return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_SESSION).dump(); // 세션 오류
     }
 
     try                                                                           // DB 작업
@@ -114,14 +114,14 @@ std::string handle_server_blacklist_remove(const json& req, sql::Connection& db)
 
         if (affected == 0)                                                        // 삭제 대상 없음
         {
-            return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_BLACKLIST_NOT_FOUND).dump(); // 없음
+            return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_BLACKLIST_NOT_FOUND).dump(); // 없음
         }
 
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS).dump();  // 성공
+        return make_response(PKT_BLACKLIST_REQ, VALUE_SUCCESS).dump();  // 성공
     }
     catch (sql::SQLException&)                                                    // SQL 예외
     {
-        return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류
+        return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_DB).dump();   // DB 오류
     }
 }
 
@@ -200,5 +200,5 @@ std::string handle_server_blacklist_process(const json& req, sql::Connection& db
     if (action == "list")                                                         // list 분기
         return handle_server_blacklist_list(req, db);                             // list 처리
 
-    return make_optimized_response(PKT_BLACKLIST_REQ, VALUE_ERR_INVALID_PACKET).dump(); // 잘못된 요청
+    return make_response(PKT_BLACKLIST_REQ, VALUE_ERR_INVALID_PACKET).dump(); // 잘못된 요청
 }

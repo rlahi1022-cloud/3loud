@@ -145,11 +145,16 @@ std::string handle_msg_poll(const json& req, sql::Connection& db)
             return res.dump();
         }
 
-        // has_unread 조회
+        // has_unread 조회 (블랙리스트 발신자 제외)
         std::unique_ptr<sql::PreparedStatement> pstmt(
             db.prepareStatement(
-                "SELECT COUNT(*) AS cnt FROM messages "
-                "WHERE to_email = ? AND is_read = 0 LIMIT 1"
+                "SELECT COUNT(*) AS cnt FROM messages m "
+                "WHERE m.to_email = ? AND m.is_read = 0 "
+                "AND NOT EXISTS ("
+                "    SELECT 1 FROM blacklist b "
+                "    WHERE b.owner_email = m.to_email "
+                "    AND b.blocked_email = m.from_email"
+                ") LIMIT 1"
             )
         );
         pstmt->setString(1, email);
