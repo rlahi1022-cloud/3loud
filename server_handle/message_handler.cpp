@@ -627,41 +627,32 @@ std::string handle_msg_setting_get(const json &req, sql::Connection &db)
         return res.dump();
     }
 }
-// ============================================================
-// handle_msg_setting_update
-// PKT_MSG_SETTING_UPDATE_REQ = 0x0016
-// payload:
-//   { "prefix": "...", "suffix": "..." }
-// ============================================================
-std::string handle_msg_setting_update(const json &req, sql::Connection &db)
+
+std::string handle_msg_setting_save(const json& req, sql::Connection& db)
 {
     try
     {
-        // 1. 세션 확인
-        std::string email = get_session_email(g_current_sock);
-        if (email.empty())
-        {
-            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_SESSION);
-            res["msg"] = "로그인 세션 없음";
-            return res.dump();
-        }
-
-        // 2. user_no 조회
-        unsigned int user_no = get_user_no(db, email);
-        if (user_no == 0)
-        {
-            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
-            res["msg"] = "사용자 정보 없음";
-            return res.dump();
-        }
-
-        // 3. payload 파싱
         json payload = get_payload(req);
 
+        if (!payload.contains("user_no") ||
+            !payload["user_no"].is_number_unsigned())
+        {
+            json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "user_no 누락";
+            return res.dump();
+        }
+
+        unsigned int user_no = payload["user_no"].get<unsigned int>();
         std::string prefix = payload.value("prefix", "");
         std::string suffix = payload.value("suffix", "");
 
-        // 4. users 테이블 직접 UPDATE
+        if (prefix.size() > 255 || suffix.size() > 255)
+        {
+            json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_ERR_INVALID_PACKET);
+            res["msg"] = "말머리/말끝머리는 255자 이하로 입력해주세요.";
+            return res.dump();
+        }
+
         std::unique_ptr<sql::PreparedStatement> ps(
             db.prepareStatement(
                 "UPDATE users "
@@ -676,27 +667,110 @@ std::string handle_msg_setting_update(const json &req, sql::Connection &db)
         ps->setUInt(3, user_no);
 
         int affected = ps->executeUpdate();
+
         if (affected == 0)
         {
-            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
-            res["msg"] = "설정 저장 실패";
+            json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_ERR_USER_NOT_FOUND);
+            res["msg"] = "해당 사용자를 찾을 수 없습니다.";
             return res.dump();
         }
 
-        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_SUCCESS);
-        res["msg"] = "설정 저장 완료";
+        json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_SUCCESS);
+        res["msg"] = "메시지 설정이 저장되었습니다.";
         return res.dump();
     }
-    catch (const sql::SQLException &e)
+    catch (const sql::SQLException& e)
     {
-        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+        json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_ERR_DB);
         res["msg"] = std::string("DB 오류: ") + e.what();
         return res.dump();
     }
     catch (...)
     {
-        json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_UNKNOWN);
+        json res = make_response(PKT_MSG_SETTING_SAVE_REQ, VALUE_ERR_UNKNOWN);
         res["msg"] = "알 수 없는 오류";
         return res.dump();
     }
 }
+// ============================================================
+// handle_msg_setting_update
+// PKT_MSG_SETTING_UPDATE_REQ = 0x0016
+// payload:
+//   { "prefix": "...", "suffix": "..." }
+// ============================================================
+// std::string handle_msg_setting_update(const json &req, sql::Connection &db)
+// {
+//     try
+//     {
+//         // 1. 세션 확인
+//         std::string email = get_session_email(g_current_sock);
+//         if (email.empty())
+//         {
+//             json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_SESSION);
+//             res["msg"] = "로그인 세션 없음";
+//             return res.dump();
+//         }
+
+//         // 2. user_no 조회
+//         unsigned int user_no = get_user_no(db, email);
+//         if (user_no == 0)
+//         {
+//             json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+//             res["msg"] = "사용자 정보 없음";
+//             return res.dump();
+//         }
+
+//         // 3. payload 파싱
+//         json payload = get_payload(req);
+
+//         std::string prefix = payload.value("prefix", "");
+//         std::string suffix = payload.value("suffix", "");
+
+//         // 4. users 테이블 직접 UPDATE
+//         std::unique_ptr<sql::PreparedStatement> ps(
+//             db.prepareStatement(
+//                 "UPDATE users "
+//                 "SET default_prefix = ?, "
+//                 "    default_suffix = ? "
+//                 "WHERE no = ?"
+//             )
+//         );
+
+//         ps->setString(1, prefix);
+//         ps->setString(2, suffix);
+//         ps->setUInt(3, user_no);
+
+//         int affected = ps->executeUpdate();
+//         if (affected == 0)
+//         {
+//             json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+//             res["msg"] = "설정 저장 실패";
+//             return res.dump();
+//         }
+
+//         json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_SUCCESS);
+//         res["msg"] = "설정 저장 완료";
+//         return res.dump();
+//     }
+//     catch (const sql::SQLException &e)
+//     {
+//         json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+//         res["msg"] = std::string("DB 오류: ") + e.what();
+//         return res.dump();
+//     }
+//     catch (...)
+//     {
+//         json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_UNKNOWN);
+//         res["msg"] = "알 수 없는 오류";
+//         return res.dump();
+//     }
+// }
+// // ============================================================
+// // handle_msg_setting_save
+// // PKT_MSG_SETTING_SAVE_REQ
+// // payload:
+// // {
+// //   "prefix": "...",
+// //   "suffix": "..."
+// // }
+// // ============================================================

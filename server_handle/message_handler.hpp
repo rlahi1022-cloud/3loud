@@ -24,5 +24,5 @@ std::string handle_msg_read(const json& req, sql::Connection& db);
 // 메시지 설정 조회
 std::string handle_msg_setting_get(const nlohmann::json& req, sql::Connection& db);
 
-// 메시지 설정 업데이트
-std::string handle_msg_setting_update(const nlohmann::json& req, sql::Connection& db);
+// 메시지 설정 저장
+std::string handle_msg_setting_save(const nlohmann::json& req, sql::Connection& db);

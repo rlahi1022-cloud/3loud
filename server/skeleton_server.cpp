@@ -589,15 +589,14 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                 out_payload = handle_msg_setting_get(req, *conn);
                 break;
 
-            case PKT_MSG_SETTING_UPDATE_REQ:
-                out_payload = handle_msg_setting_update(req, *conn);
-                break;
-
             case PKT_SETTINGS_VERIFY_REQ:
                 out_payload = handle_settings_verify_req(req, *conn);
                 break;
             case PKT_BLACKLIST_REQ:
                 out_payload = handle_server_blacklist_process(req, *conn);
+                break;
+            case PKT_MSG_SETTING_SAVE_REQ:
+                out_payload = handle_msg_setting_save(req, *conn);
                 break;
 
             case PKT_AUTH_LOGOUT_REQ:

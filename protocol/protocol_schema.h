@@ -161,23 +161,26 @@ namespace MessageSchema
     }
 
     // ----------------------------------------------------
-    // 메시지 설정 payload
+    // 메시지 설정 저장 payload (user_no 직접 사용)
     // ----------------------------------------------------
-    inline json make_setting_update_payload(const std::string& prefix,
-                                            const std::string& suffix)
-    {
-        json pl;
-        pl["prefix"] = prefix;   // 말머리
-        pl["suffix"] = suffix;   // 말끝머리
-        return pl;
-    }
-
-    // 메시지 설정 요청 패킷
-    inline json make_setting_update_req(int type_msg_setting_update_req,
+    inline json make_setting_save_payload(unsigned int user_no,
                                         const std::string& prefix,
                                         const std::string& suffix)
     {
-        return make_req(type_msg_setting_update_req,
-                        make_setting_update_payload(prefix, suffix));
+        json pl;
+        pl["user_no"] = user_no;
+        pl["prefix"] = prefix;
+        pl["suffix"] = suffix;
+        return pl;
+    }
+
+    // 메시지 설정 저장 요청 패킷
+    inline json make_setting_save_req(int type_msg_setting_save_req,
+                                    unsigned int user_no,
+                                    const std::string& prefix,
+                                    const std::string& suffix)
+    {
+        return make_req(type_msg_setting_save_req,
+                        make_setting_save_payload(user_no, prefix, suffix));
     }
 }
