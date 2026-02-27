@@ -275,19 +275,19 @@ int main()                              // main 시작
                 }
             }
 
-            // 메시지 항목에 [!] 배지 표시
-            std::string msg_label = has_unread
-                                        ? "메시지  \033[33m[!]\033[0m"
-                                        : "메시지";
-
-            // [ADMIN NEW] 관리자 메뉴 분기 추가
-            std::vector<std::string> main_menu_items = {
-                "파일", msg_label, "환경 설정", "로그 아웃", "프로그램 종료"};
+            // items_fn: g_has_unread 실시간 반영 (100ms마다 갱신)
             bool is_admin = (g_user_no >= 1 && g_user_no <= 4);
-            if (is_admin)
-                main_menu_items.push_back("\033[36m[ 관리자 모드 ]\033[0m");
-
-            int choice = tui_menu("3LOUD 메인 메뉴", main_menu_items);
+            auto main_items_fn = [is_admin]() -> std::vector<std::string> {
+                std::string msg = g_has_unread.load()
+                    ? "메시지  \033[33m[!] 읽지 않은 메시지\033[0m"
+                    : "메시지";
+                std::vector<std::string> items = {
+                    "파일", msg, "환경 설정", "로그 아웃", "프로그램 종료"};
+                if (is_admin)
+                    items.push_back("\033[36m[ 관리자 모드 ]\033[0m");
+                return items;
+            };
+            int choice = tui_menu("3LOUD 메인 메뉴", main_items_fn(), main_items_fn);
 
             if (choice == -1 || choice == 4) // ESC 또는 종료
             {                                // if 시작
