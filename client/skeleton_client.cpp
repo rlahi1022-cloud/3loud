@@ -38,6 +38,8 @@ extern "C"
 #include "client_handlers.h"
 #include "client_messagehandler.hpp"
 #include "file_settings.hpp"
+#include "../client_handle/admin_client.hpp"
+
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
 static const int SERVER_PORT = 5011; // 서버 포트(프로젝트 값으로 맞추기)
 
@@ -45,17 +47,17 @@ std::string g_current_user_email;
 extern std::string g_msg_prefix;
 extern std::string g_msg_suffix;
 
-std::string g_current_pw_hash;  // 폴링 소켓 로그인용
+std::string g_current_pw_hash; // 폴링 소켓 로그인용
 
 // ── 실시간 폴링 (요구사항 9) ──
-std::atomic<bool>  g_has_unread{false};   // 스레드 간 공유 unread 플래그
-static int         g_poll_sock = -1;       // 폴링 전용 소켓
-static std::mutex  g_poll_mutex;           // 폴링 소켓 뮤텍스
+std::atomic<bool> g_has_unread{false};          // 스레드 간 공유 unread 플래그
+static int g_poll_sock = -1;                    // 폴링 전용 소켓
+static std::mutex g_poll_mutex;                 // 폴링 소켓 뮤텍스
 static std::atomic<bool> g_poll_running{false}; // 폴링 스레드 실행 플래그
-static std::thread g_poll_thread;          // 폴링 스레드
+static std::thread g_poll_thread;               // 폴링 스레드
 
 // ============================================================================ // 콘솔 입력 버퍼 정리 유틸
-// ============================================================================ 
+// ============================================================================
 
 // ============================================================================
 // 실시간 메시지 폴링 (요구사항 9, 9-1, 9-2)
@@ -65,14 +67,21 @@ static std::thread g_poll_thread;          // 폴링 스레드
 static int make_poll_connection()
 {
     int s = ::socket(PF_INET, SOCK_STREAM, 0);
-    if (s < 0) return -1;
+    if (s < 0)
+        return -1;
     sockaddr_in serv{};
     serv.sin_family = AF_INET;
-    serv.sin_port   = htons(SERVER_PORT);
+    serv.sin_port = htons(SERVER_PORT);
     if (inet_pton(AF_INET, SERVER_IP, &serv.sin_addr) != 1)
-        { close(s); return -1; }
-    if (::connect(s, (sockaddr*)&serv, sizeof(serv)) < 0)
-        { close(s); return -1; }
+    {
+        close(s);
+        return -1;
+    }
+    if (::connect(s, (sockaddr *)&serv, sizeof(serv)) < 0)
+    {
+        close(s);
+        return -1;
+    }
     return s;
 }
 
@@ -84,14 +93,16 @@ static void poll_loop()
         for (int i = 0; i < 50 && g_poll_running.load(); i++)
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        if (!g_poll_running.load()) break;
+        if (!g_poll_running.load())
+            break;
 
         std::lock_guard<std::mutex> lk(g_poll_mutex);
-        if (g_poll_sock < 0) continue;
+        if (g_poll_sock < 0)
+            continue;
 
         // PKT_MSG_POLL_REQ 전송 (세션 없이 email+pw_hash 인증, has_unread 확인)
         json req = make_request(PKT_MSG_POLL_REQ);
-        req["payload"]["email"]   = g_current_user_email;
+        req["payload"]["email"] = g_current_user_email;
         req["payload"]["pw_hash"] = g_current_pw_hash;
         std::string s = req.dump();
 
@@ -103,7 +114,7 @@ static void poll_loop()
             continue;
         }
 
-        char*    rbuf = nullptr;
+        char *rbuf = nullptr;
         uint32_t rlen = 0;
         if (packet_recv(g_poll_sock, &rbuf, &rlen) < 0)
         {
@@ -112,11 +123,15 @@ static void poll_loop()
             continue;
         }
 
-        try {
+        try
+        {
             auto r = json::parse(std::string(rbuf, rlen));
             bool unread = r["payload"].value("has_unread", false);
             g_has_unread.store(unread);
-        } catch (...) {}
+        }
+        catch (...)
+        {
+        }
         free(rbuf);
     }
 }
@@ -132,12 +147,17 @@ static void start_poll_thread()
 static void stop_poll_thread()
 {
     g_poll_running.store(false);
-    if (g_poll_thread.joinable()) g_poll_thread.join();
-    if (g_poll_sock >= 0) { close(g_poll_sock); g_poll_sock = -1; }
+    if (g_poll_thread.joinable())
+        g_poll_thread.join();
+    if (g_poll_sock >= 0)
+    {
+        close(g_poll_sock);
+        g_poll_sock = -1;
+    }
     g_has_unread.store(false);
 }
 
-void clear_stdin_line()                                          // cin 잔여 입력 제거 함수
+void clear_stdin_line()                                                 // cin 잔여 입력 제거 함수
 {                                                                       // 함수 시작
     std::cin.clear();                                                   // 입력 스트림 오류 상태 초기화
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // 한 줄 끝까지 버림
@@ -186,7 +206,7 @@ int main()                              // main 시작
     int sock = connect_server_or_die(); // 서버 연결(1회 연결 유지)
     if (sock < 0)                       // 연결 실패면 종료
     {                                   // if 시작
-        return 1;                        
+        return 1;
     }
 
     bool running = true;    // 프로그램 실행 플래그
@@ -212,13 +232,13 @@ int main()                              // main 시작
             if (choice == 0)                    // 로그인 선택
             {                                   // if 시작
                 logged_in = handle_login(sock); // 로그인 핸들러 호출
-                if (logged_in) {
-                    load_receiver_history();  // 수신자 이력 로드
-                    start_poll_thread();      // 실시간 폴링 시작 (요구사항 9)
+                if (logged_in)
+                {
+                    load_receiver_history(); // 수신자 이력 로드
+                    start_poll_thread();     // 실시간 폴링 시작 (요구사항 9)
                 }
                 continue; // 메뉴 루프 진행
-            } 
-
+            }
 
             if (choice == 1)         // 회원가입 선택
             {                        // if 시작
@@ -255,21 +275,33 @@ int main()                              // main 시작
                 }
             }
 
-            // tui_menu: 0=파일, 1=메시지, 2=개인설정, 3=로그아웃, 4=종료
-            // items_fn으로 g_has_unread 실시간 반영 (100ms마다 갱신)
-            auto main_items_fn = []() -> std::vector<std::string> {
-                std::string msg = g_has_unread.load()
-                    ? "메시지  \033[33m[!] 읽지 않은 메시지\033[0m"
-                    : "메시지";
-                return {"파일", msg, "환경 설정", "로그 아웃", "프로그램 종료"};
-            };
-            int choice = tui_menu("3LOUD 메인 메뉴", main_items_fn(), main_items_fn);
+            // 메시지 항목에 [!] 배지 표시
+            std::string msg_label = has_unread
+                                        ? "메시지  \033[33m[!]\033[0m"
+                                        : "메시지";
+
+            // [ADMIN NEW] 관리자 메뉴 분기 추가
+            std::vector<std::string> main_menu_items = {
+                "파일", msg_label, "환경 설정", "로그 아웃", "프로그램 종료"};
+            bool is_admin = (g_user_no >= 1 && g_user_no <= 4);
+            if (is_admin)
+                main_menu_items.push_back("\033[36m[ 관리자 모드 ]\033[0m");
+
+            int choice = tui_menu("3LOUD 메인 메뉴", main_menu_items);
 
             if (choice == -1 || choice == 4) // ESC 또는 종료
             {                                // if 시작
                 running = false;             // 전체 종료 플래그
                 break;                       // 메인 메뉴 루프 탈출
             }
+
+            // [ADMIN NEW] 관리자 메뉴 라우팅
+            if (is_admin && choice == 5)
+            {
+                handle_admin_menu(sock);
+                continue;
+            }
+
             if (choice == 3)         // 로그아웃
             {                        // if 시작
                 handle_logout(sock); // 로그아웃 훅
@@ -371,5 +403,5 @@ int main()                              // main 시작
         }
     }
     close(sock); // 소켓 종료
-    return 0;    
-} 
+    return 0;
+}
