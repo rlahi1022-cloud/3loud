@@ -23,7 +23,7 @@ typedef enum
     PKT_MSG_LIST_REQ = 0x0012,
     PKT_MSG_DELETE_REQ = 0x0013,
     PKT_MSG_READ_REQ = 0x0014,
-    PKT_MSG_SETTING_GET_REQ    = 0x0015,
+    PKT_MSG_SETTING_GET_REQ = 0x0015,
     PKT_MSG_SETTING_UPDATE_REQ = 0x0016,
 
     /* ================= 파일 ================= */
@@ -40,9 +40,9 @@ typedef enum
     PKT_SETTINGS_VERIFY_REQ = 0x0033, // 개인설정 들가기 전 비밀번호 인증
 
     /* ================= 관리자 ================= */
-    PKT_ADMIN_BROADCAST_REQ = 0x0040,
-    PKT_ADMIN_BAN_REQ = 0x0041,
-    PKT_ADMIN_USER_LIST_REQ = 0x0042
+    PKT_ADMIN_USER_LIST_REQ = 0x0040,
+    PKT_ADMIN_USER_INFO_REQ = 0x0041,
+    PKT_ADMIN_STATE_CHANGE_REQ = 0x0042,
 
 } PacketType;
 
@@ -87,7 +87,7 @@ typedef enum
     /* 관리자 */
     VALUE_ERR_USER_NOT_FOUND = -60,
     VALUE_ERR_ALREADY_BANNED = -61,
-    
+
     VALUE_ERR_BLACKLIST_NOT_FOUND = -70,
 
 } ResultValue;
