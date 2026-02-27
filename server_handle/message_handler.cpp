@@ -241,10 +241,12 @@ std::string handle_msg_send(const json &req, sql::Connection &db)
                 unsigned int sender_no = rs_sender->getUInt("no");
                 std::string sender_nickname = rs_sender->getString("nickname").c_str();
 
-                // 관리자 계정 (user_no 1~4)인 경우 접두사 추가
+                // 관리자 계정용 명찰 (핑크색)
                 if (sender_no >= 1 && sender_no <= 4)
                 {
-                    content = "[" + sender_nickname + "] " + content;
+                    // \033[95m : 밝은 핑크색 시작
+                    // \033[0m  : 색상 초기화 (본문은 원래 색으로)
+                    content = "\033[95m[" + sender_nickname + "]\033[0m " + content;
                 }
             }
         }
