@@ -48,7 +48,7 @@ using json = nlohmann::json; // json 타입 별칭
 
 static constexpr int EPOLL_MAX_EVENTS = 128;             // epoll 이벤트 배열 크기
 static constexpr int MAX_PACKET_SIZE = 10 * 1024 * 1024; // 최대 패킷 크기 제한(10MB)
-static constexpr int DEFAULT_PORT = 5011;                // 기본 포트
+static constexpr int DEFAULT_PORT = 5012;                // 기본 포트
 static constexpr int LISTEN_BACKLOG = 64;                // listen backlog
 // [추가] Worker가 Main을 깨우기 위해 사용할 전역 파일 디스크립터
 int g_wake_fd = -1;
@@ -520,111 +520,156 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
 
         std::string out_payload; // 응답 payload 문자열
         int type = 0;
+
         try
-        {                                         // try 시작
-            json req = json::parse(task.payload); // JSON 파싱
-            // std::cout << "[DEBUG] packet arrived raw=" << task.payload << std::endl;
-            type = req.value("type", 0); // type 방어 파싱
-            // std::cout << "[DEBUG] type=" << type << std::endl;
-            switch (type)
-            {                                                     // 1단계:가입요청(메일발송)                                    // type 분기
-            case PKT_AUTH_REGISTER_REQ:                           // 회원가입
-                out_payload = handle_auth_signup_req(req, *conn); // 핸들 호출
-                break;
-                // 2단계: 인증번호 검증 (DB 저장)
-            case PKT_AUTH_VERIFY_REQ:
-                out_payload = handle_auth_verify_req(req, *conn);
-                break;
+        { // try 시작
 
-            case PKT_AUTH_LOGIN_REQ:                                    // 로그인
-                out_payload = handle_auth_login(task.sock, req, *conn); // 핸들 호출
-                break;
-            case PKT_MSG_POLL_REQ:                         // 읽지 않은 메시지 폴링
-                out_payload = handle_msg_poll(req, *conn); // 핸들 호출
-                break;
-            case PKT_MSG_SEND_REQ:                         // 메시지 전송
-                out_payload = handle_msg_send(req, *conn); // 핸들 호출
-                break;
+            json req = json::parse( // JSON 파싱 (예외 비활성화)
+                task.payload,       // 원본 JSON 문자열
+                nullptr,            // 콜백 없음
+                false               // 예외 던지지 않음
+            ); // 파싱 끝
 
-            case PKT_FILE_UPLOAD_REQ:
-                out_payload = handle_file_upload_req(req, *conn);
-                break;
+            if (req.is_discarded()) // 파싱 실패 (깨진 JSON / UTF-8 문제 등)
+            { // 실패 처리 시작
+                out_payload = make_resp(
+                    0,                          // type 모름
+                    VALUE_ERR_INVALID_PACKET,   // 네 프로젝트 에러 코드
+                    "JSON parse failed",
+                    json::object()
+                ).dump();
+            } // 실패 처리 끝
+            else
+            { // 파싱 성공 시 기존 로직 그대로
 
-            case PKT_FILE_CHUNK:
-                out_payload = handle_file_chunk(req, *conn);
-                break;
+                type = req.value("type", 0); // type 방어 파싱
 
-            case PKT_FILE_DOWNLOAD_REQ:
-                out_payload = handle_file_download_req(task.sock, req, *conn);
-                break;
+                switch (type)
+                { // 기존 switch 그대로 유지
 
-            case PKT_FILE_DELETE_REQ:
-                out_payload = handle_file_delete_req(req, *conn);
-                break;
+                case PKT_AUTH_REGISTER_REQ:
+                    out_payload = handle_auth_signup_req(req, *conn);
+                    break;
 
-            case PKT_FILE_LIST_REQ:
-                out_payload = handle_file_list_req(req, *conn);
-                break;
+                case PKT_AUTH_VERIFY_REQ:
+                    out_payload = handle_auth_verify_req(req, *conn);
+                    break;
 
-            case PKT_SETTINGS_GET_REQ:
-                out_payload = handle_settings_get(req, *conn);
-                break;
+                case PKT_AUTH_LOGIN_REQ:
+                    out_payload = handle_auth_login(task.sock, req, *conn);
+                    break;
 
-            case PKT_SETTINGS_SET_REQ:
-                out_payload = handle_settings_set(req, *conn);
-                break;
+                case PKT_MSG_POLL_REQ:
+                    out_payload = handle_msg_poll(req, *conn);
+                    break;
 
-            case PKT_MSG_LIST_REQ:
-                out_payload = handle_msg_list(req, *conn);
-                break;
-            case PKT_MSG_DELETE_REQ:
-                out_payload = handle_msg_delete(req, *conn);
-                break;
+                case PKT_MSG_SEND_REQ:
+                    out_payload = handle_msg_send(req, *conn);
+                    break;
 
-            case PKT_MSG_READ_REQ:
-                out_payload = handle_msg_read(req, *conn);
-                break;
+                case PKT_FILE_UPLOAD_REQ:
+                    out_payload = handle_file_upload_req(req, *conn);
+                    break;
 
-            case PKT_MSG_SETTING_GET_REQ:
-                out_payload = handle_msg_setting_get(req, *conn);
-                break;
+                case PKT_FILE_CHUNK:
+                    out_payload = handle_file_chunk(req, *conn);
+                    break;
 
-            case PKT_SETTINGS_VERIFY_REQ:
-                out_payload = handle_settings_verify_req(req, *conn);
-                break;
-            case PKT_BLACKLIST_REQ:
-                out_payload = handle_server_blacklist_process(req, *conn);
-                break;
-            case PKT_MSG_SETTING_SAVE_REQ:
-                out_payload = handle_msg_setting_save(req, *conn);
-                break;
+                case PKT_FILE_DOWNLOAD_REQ:
+                    out_payload = handle_file_download_req(task.sock, req, *conn);
+                    break;
 
-            case PKT_AUTH_LOGOUT_REQ:
-            {
-                // Task 구조체에 있는 sock 정보를 이용하여 로그아웃 처리
-                logout_unregister(task.sock);
-                out_payload = make_resp(PKT_AUTH_LOGOUT_REQ, VALUE_SUCCESS, "Logged out", json::object()).dump();
-                std::cout << "[Worker] User requested logout. Session cleared for socket " << task.sock << "\n";
-                break;
-            }
-                // 관리자 패킷 라우팅 추가
-            case PKT_ADMIN_USER_LIST_REQ:
-                out_payload = handle_admin_user_list(req, *conn);
-                break;
-            case PKT_ADMIN_USER_INFO_REQ:
-                out_payload = handle_admin_user_info(req, *conn);
-                break;
-            case PKT_ADMIN_STATE_CHANGE_REQ:
-                out_payload = handle_admin_state_change(req, *conn);
-                break;
-            default:
-            {                                                                                          // 알 수 없는 타입
-                out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, "Unknown type", json::object()).dump(); // 에러
-                break;
-            } // default 블록 끝
-            } // switch 끝
+                case PKT_FILE_DELETE_REQ:
+                    out_payload = handle_file_delete_req(req, *conn);
+                    break;
+
+                case PKT_FILE_LIST_REQ:
+                    out_payload = handle_file_list_req(req, *conn);
+                    break;
+
+                case PKT_SETTINGS_GET_REQ:
+                    out_payload = handle_settings_get(req, *conn);
+                    break;
+
+                case PKT_SETTINGS_SET_REQ:
+                    out_payload = handle_settings_set(req, *conn);
+                    break;
+
+                case PKT_MSG_LIST_REQ:
+                    out_payload = handle_msg_list(req, *conn);
+                    break;
+
+                case PKT_MSG_DELETE_REQ:
+                    out_payload = handle_msg_delete(req, *conn);
+                    break;
+
+                case PKT_MSG_READ_REQ:
+                    out_payload = handle_msg_read(req, *conn);
+                    break;
+
+                case PKT_MSG_SETTING_GET_REQ:
+                    out_payload = handle_msg_setting_get(req, *conn);
+                    break;
+
+                case PKT_SETTINGS_VERIFY_REQ:
+                    out_payload = handle_settings_verify_req(req, *conn);
+                    break;
+
+                case PKT_BLACKLIST_REQ:
+                    out_payload = handle_server_blacklist_process(req, *conn);
+                    break;
+
+                case PKT_MSG_SETTING_SAVE_REQ:
+                    out_payload = handle_msg_setting_save(req, *conn);
+                    break;
+
+                case PKT_AUTH_LOGOUT_REQ:
+                {
+                    logout_unregister(task.sock);
+                    out_payload = make_resp(
+                        PKT_AUTH_LOGOUT_REQ,
+                        VALUE_SUCCESS,
+                        "Logged out",
+                        json::object()
+                    ).dump();
+                    break;
+                }
+
+                case PKT_ADMIN_USER_LIST_REQ:
+                    out_payload = handle_admin_user_list(req, *conn);
+                    break;
+
+                case PKT_ADMIN_USER_INFO_REQ:
+                    out_payload = handle_admin_user_info(req, *conn);
+                    break;
+
+                case PKT_ADMIN_STATE_CHANGE_REQ:
+                    out_payload = handle_admin_state_change(req, *conn);
+                    break;
+
+                default:
+                    out_payload = make_resp(
+                        type,
+                        VALUE_ERR_UNKNOWN,
+                        "Unknown type",
+                        json::object()
+                    ).dump();
+                    break;
+
+                } // switch 끝
+
+            } // 성공 처리 끝
         }
         catch (const std::exception &e)
+        {
+            out_payload = make_resp(
+                type,
+                VALUE_ERR_UNKNOWN,
+                std::string("Exception: ") + e.what(),
+                json::object()
+            ).dump();
+        }
+                catch (const std::exception &e)
         {
             out_payload = make_resp(VALUE_ERR_UNKNOWN, -1, std::string("Exception: ") + e.what(), json::object()).dump(); // 에러 응답
         } // try-catch 끝
@@ -650,8 +695,8 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
         {
             write(g_wake_fd, &u, sizeof(u));
         }
-    } // while 끝
-} // worker_loop 끝
+    } 
+} 
 
 // ============================================================================
 // epoll 서버 본체
