@@ -635,9 +635,11 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
         {
             out_payload = make_resp(type, VALUE_ERR_UNKNOWN, "empty response", json::object()).dump();
         }
-        std::cout << "[DEBUG] response type=" << type
-                  << " len=" << out_payload.size()
-                  << " payload=" << out_payload.substr(0, 120) << std::endl;
+        // type=17(PKT_MSG_POLL_REQ)은 폴링 전용 - 로그 생략
+        if (type != PKT_MSG_POLL_REQ)
+            std::cout << "[DEBUG] response type=" << type
+                      << " len=" << out_payload.size()
+                      << " payload=" << out_payload.substr(0, 120) << std::endl;
 
         {                                                       // 응답 큐 lock 블록
             std::lock_guard<std::mutex> lk(g_res_m);            // 응답 큐 lock
