@@ -277,11 +277,10 @@ int main()                              // main 시작
 
             // items_fn: g_has_unread 실시간 반영 (100ms마다 갱신)
             bool is_admin = (g_user_no >= 1 && g_user_no <= 4);
-            auto main_items_fn = [is_admin]() -> std::vector<std::string>
-            {
+            auto main_items_fn = [is_admin]() -> std::vector<std::string> {
                 std::string msg = g_has_unread.load()
-                                      ? "메시지  \033[33m[!] 읽지 않은 메시지\033[0m"
-                                      : "메시지";
+                    ? "메시지  \033[33m[!] 읽지 않은 메시지\033[0m"
+                    : "메시지";
                 std::vector<std::string> items = {
                     "파일", msg, "환경 설정", "로그 아웃", "프로그램 종료"};
                 if (is_admin)

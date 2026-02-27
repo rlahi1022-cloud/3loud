@@ -242,8 +242,7 @@ std::string handle_msg_send(const json &req, sql::Connection &db)
                 std::string sender_nickname = rs_sender->getString("nickname").c_str();
 
                 // 관리자 계정 (user_no 1~4)인 경우 접두사 추가
-                if (sender_no >= 1 && sender_no <= 4)
-
+                 if (sender_no >= 1 && sender_no <= 4)
                 {
                     // \033[95m : 밝은 핑크색 시작
                     // \033[0m  : 색상 초기화 (본문은 원래 색으로)
@@ -588,15 +587,9 @@ std::string handle_msg_setting_get(const json &req, sql::Connection &db)
         // 3. users 테이블에서 조회 (여기만 수정)
         std::unique_ptr<sql::PreparedStatement> ps(
             db.prepareStatement(
-<<<<<<< HEAD
-                "SELECT prefix, suffix "
-                "FROM message_settings "
-                "WHERE user_no = ? LIMIT 1"));
-=======
                 "SELECT default_prefix, default_suffix "
                 "FROM users "
                 "WHERE no = ? LIMIT 1"));
->>>>>>> develop
         ps->setUInt(1, user_no);
 
         std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
@@ -671,18 +664,12 @@ std::string handle_msg_setting_update(const json &req, sql::Connection &db)
         // 4. users 테이블 직접 UPDATE
         std::unique_ptr<sql::PreparedStatement> ps(
             db.prepareStatement(
-<<<<<<< HEAD
-                "INSERT INTO message_settings (user_no, prefix, suffix) "
-                "VALUES (?, ?, ?) "
-                "ON DUPLICATE KEY UPDATE "
-                "prefix = VALUES(prefix), "
-                "suffix = VALUES(suffix)"));
-=======
                 "UPDATE users "
                 "SET default_prefix = ?, "
                 "    default_suffix = ? "
-                "WHERE no = ?"));
->>>>>>> develop
+                "WHERE no = ?"
+            )
+        );
 
         ps->setString(1, prefix);
         ps->setString(2, suffix);
