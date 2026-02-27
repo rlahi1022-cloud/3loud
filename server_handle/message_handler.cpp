@@ -241,8 +241,9 @@ std::string handle_msg_send(const json &req, sql::Connection &db)
                 unsigned int sender_no = rs_sender->getUInt("no");
                 std::string sender_nickname = rs_sender->getString("nickname").c_str();
 
-                // 관리자 계정용 명찰 (핑크색)
+                // 관리자 계정 (user_no 1~4)인 경우 접두사 추가
                 if (sender_no >= 1 && sender_no <= 4)
+
                 {
                     // \033[95m : 밝은 핑크색 시작
                     // \033[0m  : 색상 초기화 (본문은 원래 색으로)
@@ -584,12 +585,18 @@ std::string handle_msg_setting_get(const json &req, sql::Connection &db)
             return res.dump();
         }
 
-        // 3. DB 조회
+        // 3. users 테이블에서 조회 (여기만 수정)
         std::unique_ptr<sql::PreparedStatement> ps(
             db.prepareStatement(
+<<<<<<< HEAD
                 "SELECT prefix, suffix "
                 "FROM message_settings "
                 "WHERE user_no = ? LIMIT 1"));
+=======
+                "SELECT default_prefix, default_suffix "
+                "FROM users "
+                "WHERE no = ? LIMIT 1"));
+>>>>>>> develop
         ps->setUInt(1, user_no);
 
         std::unique_ptr<sql::ResultSet> rs(ps->executeQuery());
@@ -599,14 +606,13 @@ std::string handle_msg_setting_get(const json &req, sql::Connection &db)
 
         if (rs->next())
         {
-            if (!rs->isNull("prefix"))
-                prefix = rs->getString("prefix");
+            if (!rs->isNull("default_prefix"))
+                prefix = rs->getString("default_prefix");
 
-            if (!rs->isNull("suffix"))
-                suffix = rs->getString("suffix");
+            if (!rs->isNull("default_suffix"))
+                suffix = rs->getString("default_suffix");
         }
 
-        // 4. 응답
         json res = make_response(PKT_MSG_SETTING_GET_REQ, VALUE_SUCCESS);
         res["msg"] = "조회 성공";
         res["payload"] = {
@@ -662,19 +668,33 @@ std::string handle_msg_setting_update(const json &req, sql::Connection &db)
         std::string prefix = payload.value("prefix", "");
         std::string suffix = payload.value("suffix", "");
 
-        // 4. UPSERT
+        // 4. users 테이블 직접 UPDATE
         std::unique_ptr<sql::PreparedStatement> ps(
             db.prepareStatement(
+<<<<<<< HEAD
                 "INSERT INTO message_settings (user_no, prefix, suffix) "
                 "VALUES (?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE "
                 "prefix = VALUES(prefix), "
                 "suffix = VALUES(suffix)"));
+=======
+                "UPDATE users "
+                "SET default_prefix = ?, "
+                "    default_suffix = ? "
+                "WHERE no = ?"));
+>>>>>>> develop
 
-        ps->setUInt(1, user_no);
-        ps->setString(2, prefix);
-        ps->setString(3, suffix);
-        ps->executeUpdate();
+        ps->setString(1, prefix);
+        ps->setString(2, suffix);
+        ps->setUInt(3, user_no);
+
+        int affected = ps->executeUpdate();
+        if (affected == 0)
+        {
+            json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_ERR_DB);
+            res["msg"] = "설정 저장 실패";
+            return res.dump();
+        }
 
         json res = make_response(PKT_MSG_SETTING_UPDATE_REQ, VALUE_SUCCESS);
         res["msg"] = "설정 저장 완료";
