@@ -9,6 +9,7 @@
 #include <string>              // std::string 사용
 #include <vector>              // std::vector 사용
 #include <unordered_map>       // 세션 맵 사용
+#include <unordered_set>       // 스트리밍 소켓 집합
 #include <queue>               // 큐 사용
 #include <mutex>               // mutex 사용
 #include <condition_variable>  // condition_variable 사용
@@ -102,6 +103,12 @@ std::mutex g_login_m;                                // 위 맵들을 보호할 
 std::map<std::string, int> g_fail_counts; // 이메일 -> 실패횟수
 std::mutex g_fail_m;                      // 실패횟수 맵 보호용
 
+// 다운로드 스트리밍 중인 소켓 집합
+// worker가 직접 packet_send로 청크를 보내는 동안
+// epoll 메인 스레드가 같은 소켓에 write_buf를 flush하는 경쟁을 막음
+std::unordered_set<int> g_streaming_socks;
+std::mutex              g_streaming_m;
+
 // ============================================================================
 // 유틸: non-blocking 설정
 // ============================================================================
@@ -115,6 +122,15 @@ static bool set_nonblocking(int fd)
         return false; // O_NONBLOCK 추가
     return true;      // 성공
 } // 함수 끝
+
+// 블로킹 모드 전환 (다운로드 청크 직접 전송 시 사용)
+static bool set_blocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return false;
+    if (fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) < 0) return false;
+    return true;
+}
 
 // ============================================================================
 // 유틸: 안전한 close + 에러 무시
@@ -576,7 +592,19 @@ static void worker_loop(std::string db_url, std::string db_user, std::string db_
                     break;
 
                 case PKT_FILE_DOWNLOAD_REQ:
+                    // 다운로드는 worker가 소켓에 직접 packet_send로 청크를 쏨.
+                    // ① 소켓을 blocking으로 전환 (non-blocking이면 EAGAIN 발생)
+                    // ② g_streaming_socks에 등록 → epoll이 이 소켓엔 write_buf flush 안 함
+                    // ③ 완료 후 복구 + write_buf에 남은 DONE 패킷 flush를 위해 EPOLLOUT 트리거
+                    set_blocking(task.sock);
+                    { std::lock_guard<std::mutex> lk(g_streaming_m);
+                      g_streaming_socks.insert(task.sock); }
                     out_payload = handle_file_download_req(task.sock, req, *conn);
+                    { std::lock_guard<std::mutex> lk(g_streaming_m);
+                      g_streaming_socks.erase(task.sock); }
+                    set_nonblocking(task.sock);
+                    // wake_fd를 한 번 더 써서 epoll이 write_buf(DONE 패킷)를 flush하게 함
+                    { uint64_t u = 1; if (g_wake_fd != -1) write(g_wake_fd, &u, sizeof(u)); }
                     break;
 
                 case PKT_FILE_DELETE_REQ:
@@ -857,6 +885,13 @@ int main(int argc, char **argv)
                     s.write_buf.append(reinterpret_cast<char *>(&net_len), sizeof(net_len)); // 길이 추가
                     s.write_buf.append(rt.payload);                                          // payload 추가
 
+                    // 스트리밍(다운로드) 중인 소켓은 EPOLLOUT 등록 안 함
+                    // (worker가 blocking send 완료 후 set_nonblocking 복구 시 자동 처리됨)
+                    {
+                        std::lock_guard<std::mutex> lk(g_streaming_m);
+                        if (g_streaming_socks.count(s.sock)) continue;
+                    }
+
                     epoll_event mod;                              // 수정 이벤트
                     memset(&mod, 0, sizeof(mod));                 // 0 초기화
                     mod.events = EPOLLIN | EPOLLOUT;              // 읽기+쓰기 이벤트
@@ -984,6 +1019,12 @@ int main(int argc, char **argv)
 
             if (events[i].events & EPOLLOUT)
             { // 쓰기 이벤트면
+                // 다운로드 스트리밍 중인 소켓은 worker가 직접 send() 중이므로
+                // epoll이 동시에 write_buf를 flush하면 데이터가 섞임 → 건너뜀
+                {
+                    std::lock_guard<std::mutex> lk(g_streaming_m);
+                    if (g_streaming_socks.count(fd)) continue;
+                }
                 if (!s.write_buf.empty())
                 {                                                                            // 보낼게 있으면
                     int n3 = send(fd, s.write_buf.data(), s.write_buf.size(), MSG_DONTWAIT); // send
