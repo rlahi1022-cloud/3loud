@@ -37,6 +37,11 @@
 #include <sys/stat.h>
 #include <cstdio>
 
+#include <arpa/inet.h>    // inet_pton (업로드 전용 소켓 연결용)
+#include <sys/socket.h>   // socket, connect
+#include <netinet/in.h>   // sockaddr_in
+#include <unistd.h>       // close
+
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -44,7 +49,35 @@ using json = nlohmann::json;
 //  전역 정의
 // ─────────────────────────────────────────────────────────────────
 std::atomic<bool> g_file_transfer_in_progress(false);   // 전송 중 플래그
+std::atomic<int>  g_upload_sock(-1);                     // 업로드 전용 소켓 (메인 소켓과 분리)
+std::atomic<int>  g_upload_progress_pct(0);              // 진행률 % (tui_menu footer용)
+std::atomic<int>  g_upload_progress_cur(0);              // 현재 청크
+std::atomic<int>  g_upload_progress_tot(0);              // 전체 청크
 uint32_t g_user_no = 0;                                  // 로그인 후 설정
+
+// ─────────────────────────────────────────────────────────────────
+//  업로드 전용 소켓 연결
+//  메인 소켓과 완전히 독립된 TCP 연결을 생성하여
+//  업로드 스레드가 recv()를 해도 메인 스레드의 키 입력과 충돌하지 않음
+// ─────────────────────────────────────────────────────────────────
+bool connect_upload_socket(const char* ip, int port)
+{
+    // 기존 업로드 소켓이 살아있으면 닫고 재연결
+    int old = g_upload_sock.exchange(-1);
+    if (old >= 0) close(old);
+
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return false;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons((uint16_t)port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) { close(s); return false; }
+    if (connect(s, (sockaddr*)&addr, sizeof(addr)) < 0) { close(s); return false; }
+
+    g_upload_sock.store(s);
+    return true;
+}
 
 // ─────────────────────────────────────────────────────────────────
 //  기본 경로 (최초 호출 시 초기화)
@@ -129,9 +162,15 @@ static std::vector<unsigned char> b64_decode(const std::string& s)
 //  12-1-6: g_file_transfer_in_progress = true 동안 중복 불가
 //  12-1-7, 12-1-9: 완료 메시지 출력
 // ─────────────────────────────────────────────────────────────────
-static void upload_thread(int sock, const std::string& abs_path,
+static void upload_thread(const std::string& abs_path,
                           const std::string& file_name, const std::string& folder)
 {
+    int sock = g_upload_sock.load();   // 전용 소켓 사용 (메인 소켓과 독립)
+    if (sock < 0) {
+        std::cout << "\n[파일 오류] 업로드 소켓 미연결\n";
+        g_file_transfer_in_progress = false;
+        return;
+    }
     // 파일 크기 확인
     std::error_code ec;
     int64_t fsize = (int64_t)fs::file_size(abs_path, ec);
@@ -180,6 +219,11 @@ static void upload_thread(int sock, const std::string& abs_path,
     std::cout << "\n[파일 저장 중] " << resolved
               << " (" << human_size(fsize) << ")\n";
 
+    // 진행률 초기화
+    g_upload_progress_pct.store(0);
+    g_upload_progress_cur.store(0);
+    g_upload_progress_tot.store((int)total_chunks);
+
     // ── 0x0021 청크 전송 루프 ───────────────────────────────────
     static constexpr int64_t CHUNK = 65536;
     std::ifstream ifs(abs_path, std::ios::binary);
@@ -225,15 +269,19 @@ static void upload_thread(int sock, const std::string& abs_path,
             break;
         }
 
-        // 진행률 표시 (12-1-9)
+        // 진행률 갱신 → tui_menu footer에서 표시
         int pct = (int)(((idx + 1) * 100) / total_chunks);
-        std::cout << "\r[파일 저장 중] " << pct << "% ("
-                  << idx+1 << "/" << total_chunks << ")   " << std::flush;
+        g_upload_progress_pct.store(pct);
+        g_upload_progress_cur.store((int)(idx + 1));
+        // g_upload_progress_tot은 초기화 시 이미 설정됨
     }
 
     if (success)
         std::cout << "\n[파일 저장 완료] " << resolved << "\n";  // 12-1-7
 
+    g_upload_progress_pct.store(0);
+    g_upload_progress_cur.store(0);
+    g_upload_progress_tot.store(0);
     g_file_transfer_in_progress = false;
 }
 
@@ -550,8 +598,9 @@ void handle_file_upload(int sock)
     std::getline(std::cin, folder);
 
     // 멀티스레드 업로드 시작 (12-1-5)
+    // 전용 소켓(g_upload_sock)을 사용하므로 메인 소켓의 키 입력과 충돌 없음
     g_file_transfer_in_progress = true;
-    std::thread t(upload_thread, sock,
+    std::thread t(upload_thread,
                   fpath.string(),
                   fpath.filename().string(),
                   folder);

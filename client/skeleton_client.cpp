@@ -41,7 +41,7 @@ extern "C"
 #include "../client_handle/admin_client.hpp"
 
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
-static const int SERVER_PORT = 5011; // 서버 포트(프로젝트 값으로 맞추기)
+static const int SERVER_PORT = 5012; // 서버 포트(프로젝트 값으로 맞추기)
 
 std::string g_current_user_email;
 extern std::string g_msg_prefix;
@@ -236,6 +236,12 @@ int main()                              // main 시작
                 {
                     load_receiver_history(); // 수신자 이력 로드
                     start_poll_thread();     // 실시간 폴링 시작 (요구사항 9)
+
+                    // 업로드 전용 소켓 연결 (메인 소켓과 분리하여 키 입력 충돌 방지)
+                    // upload_thread는 이 소켓만 사용하므로 방향키가 업로드에 간섭하지 않음
+                    if (!connect_upload_socket(SERVER_IP, SERVER_PORT)) {
+                        std::cerr << "[경고] 업로드 전용 소켓 연결 실패 - 업로드 기능 불가\n";
+                    }
                     // [추가] 로그인 직후 메시지 설정(prefix, suffix) 동기화
                     // =======================================================
                     json sync_req = make_request(PKT_MSG_SETTING_GET_REQ);
@@ -337,6 +343,8 @@ int main()                              // main 시작
             {                        // if 시작
                 handle_logout(sock); // 로그아웃 훅
                 stop_poll_thread();  // 폴링 중단
+                // 업로드 전용 소켓 닫기
+                { int us = g_upload_sock.exchange(-1); if (us >= 0) close(us); }
                 logged_in = false;   // 로그인 상태 해제
                 break;               // 메인 메뉴 루프 탈출 -> 로그인 화면으로
             }
@@ -433,6 +441,7 @@ int main()                              // main 시작
             }
         }
     }
-    close(sock); // 소켓 종료
+    close(sock); // 메인 소켓 종료
+    { int us = g_upload_sock.exchange(-1); if (us >= 0) close(us); } // 업로드 전용 소켓 종료
     return 0;
 }

@@ -28,8 +28,19 @@
 // 전송 중 플래그 (멀티스레드 공유 - 요구사항 12-1-5, 12-1-6)
 extern std::atomic<bool> g_file_transfer_in_progress;
 
+// 업로드 전용 소켓 (메인 소켓과 분리하여 충돌 방지)
+extern std::atomic<int> g_upload_sock;
+
+// 업로드 진행률 (tui_menu footer 표시용)
+extern std::atomic<int> g_upload_progress_pct;
+extern std::atomic<int> g_upload_progress_cur;
+extern std::atomic<int> g_upload_progress_tot;
+
 // 로그인 후 설정되는 유저 no (skeleton_client.cpp에서 extern으로 선언)
 extern uint32_t g_user_no;
+
+// 업로드 전용 소켓 연결 (로그인 성공 직후 호출)
+bool connect_upload_socket(const char* ip, int port);
 
 // 파일 목록 조회 (0x0024)
 void handle_file_list(int sock);
