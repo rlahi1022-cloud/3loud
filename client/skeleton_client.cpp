@@ -41,7 +41,7 @@ extern "C"
 #include "../client_handle/admin_client.hpp"
 
 const char *SERVER_IP = "127.0.0.1"; // 서버 IP(테스트용)
-static const int SERVER_PORT = 5011; // 서버 포트(프로젝트 값으로 맞추기)
+static const int SERVER_PORT = 5012; // 서버 포트(프로젝트 값으로 맞추기)
 
 std::string g_current_user_email;
 extern std::string g_msg_prefix;
