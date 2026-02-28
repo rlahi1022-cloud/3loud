@@ -264,7 +264,7 @@ bool handle_login(int sock)
 
     // 3. 비밀번호 해싱 (서버와 동일한 알고리즘 필수)
     string hashed_pw = sha256(pw);
-    g_current_pw_hash = hashed_pw;  // 폴링 소켓 재로그인용
+    g_current_pw_hash = hashed_pw; // 폴링 소켓 재로그인용
 
     // 4.스키마를 이용해 요청 패킷 생성
     json req = AuthSchema::make_login_req(PKT_AUTH_LOGIN_REQ, email, hashed_pw);
@@ -300,7 +300,7 @@ bool handle_login(int sock)
             // (만약 user_no가 없으면 0으로 설정)
             g_user_no = payload.value("user_no", (uint32_t)0);
         }
-        g_current_user_email = email;  // 폴링용 이메일 저장
+        g_current_user_email = email; // 폴링용 이메일 저장
 
         cout << ">> [로그인 성공] " << msg << endl;
         wait_for_enter();
@@ -539,7 +539,30 @@ void handle_signup(int sock)
 // ============================================================================
 // [핸들러 3] 기타 기능 (스텁)
 // ============================================================================
-void handle_logout(int sock) { cout << ">> 로그아웃 완료\n"; }
+void handle_logout(int sock)
+{
+    cout << ">> 서버에 로그아웃을 요청합니다...\n";
+
+    // 서버로 로그아웃 패킷(PKT_AUTH_LOGOUT_REQ) 전송
+    json req = make_request(PKT_AUTH_LOGOUT_REQ);
+
+    if (send_json(sock, req))
+    {
+        json res;
+        // 서버의 응답 패킷 대기 (깔끔한 동기화를 위해)
+        if (recv_json(sock, res))
+        {
+            if (res.value("code", -1) == VALUE_SUCCESS)
+            {
+                cout << ">> " << res.value("msg", "로그아웃 완료") << "\n";
+            }
+        }
+    }
+    else
+    {
+        cout << ">> [오류] 서버에 로그아웃 요청을 보내지 못했습니다.\n";
+    }
+}
 // void handle_file_list(int sock) { cout << ">> [미구현] 파일 목록\n"; }
 // void handle_file_upload(int sock) { cout << ">> [미구현] 파일 업로드\n"; }
 // void handle_file_download(int sock) { cout << ">> [미구현] 파일 다운로드\n"; }
@@ -573,9 +596,11 @@ int verify_access_password(int sock)
         req["user_no"] = g_user_no;
         req["payload"] = {{"pw_hash", hashed_pw}};
 
-        if (!send_json(sock, req)) return 0;
+        if (!send_json(sock, req))
+            return 0;
         json res;
-        if (!recv_json(sock, res)) return 0;
+        if (!recv_json(sock, res))
+            return 0;
 
         int code = res.value("code", -1);
         string msg = res.value("msg", "알 수 없는 오류");
@@ -613,18 +638,18 @@ int verify_access_password(int sock)
 bool handle_profile_menu(int sock)
 {
     int verify_result = verify_access_password(sock);
-    if (verify_result == -1) return false;  // 강제 로그아웃
-    if (verify_result == 0)  return true;   // 취소, 로그인 유지
+    if (verify_result == -1)
+        return false; // 강제 로그아웃
+    if (verify_result == 0)
+        return true; // 취소, 로그인 유지
 
     while (true)
     {
-        int choice = tui_menu("개인 설정", {
-            "이메일 변경",
-            "비밀번호 변경",
-            "닉네임 변경",
-            "회원 등급 변경",
-            "뒤로가기"
-        });
+        int choice = tui_menu("개인 설정", {"이메일 변경",
+                                            "비밀번호 변경",
+                                            "닉네임 변경",
+                                            "회원 등급 변경",
+                                            "뒤로가기"});
 
         if (choice == -1 || choice == 4)
             return true;
@@ -648,12 +673,14 @@ bool handle_profile_menu(int sock)
             {
                 getline(cin, input_value);
 
-                if (input_value.empty()) {
+                if (input_value.empty())
+                {
                     printf("  >> 값을 입력해주세요.\n  변경할 새 이메일 > ");
                     fflush(stdout);
                     continue;
                 }
-                if (input_value == "/c" || input_value == "/C") {
+                if (input_value == "/c" || input_value == "/C")
+                {
                     back_to_menu = true;
                     break;
                 }
@@ -672,15 +699,26 @@ bool handle_profile_menu(int sock)
             while (true)
             {
                 input_value = get_password_input("새 비밀번호 (영문+숫자+특수문자, 10자 이상): ");
-                if (input_value == "/c" || input_value == "/C") { back_to_menu = true; break; }
-                if (input_value.empty()) continue;
-                if (!is_valid_pw(input_value)) {
+                if (input_value == "/c" || input_value == "/C")
+                {
+                    back_to_menu = true;
+                    break;
+                }
+                if (input_value.empty())
+                    continue;
+                if (!is_valid_pw(input_value))
+                {
                     cout << ">> [경고] 비밀번호는 10자 이상, 영문/숫자/특수문자를 모두 포함해야 합니다.\n";
                     continue;
                 }
                 pw_confirm = get_password_input("새 비밀번호 재확인: ");
-                if (pw_confirm == "/c" || pw_confirm == "/C") { back_to_menu = true; break; }
-                if (input_value == pw_confirm) {
+                if (pw_confirm == "/c" || pw_confirm == "/C")
+                {
+                    back_to_menu = true;
+                    break;
+                }
+                if (input_value == pw_confirm)
+                {
                     input_value = sha256(input_value);
                     break;
                 }
@@ -701,49 +739,59 @@ bool handle_profile_menu(int sock)
             while (true)
             {
                 getline(cin, input_value);
-                if (input_value.empty()) {
+                if (input_value.empty())
+                {
                     printf("  >> 값을 입력해주세요.\n  변경할 새 닉네임 > ");
                     fflush(stdout);
                     continue;
                 }
-                if (input_value == "/c" || input_value == "/C") { back_to_menu = true; break; }
+                if (input_value == "/c" || input_value == "/C")
+                {
+                    back_to_menu = true;
+                    break;
+                }
                 break;
             }
         }
         // ── 3: 회원 등급 변경 ────────────────────────────
         else if (choice == 3)
         {
-            int grade_choice = tui_menu("변경할 등급을 선택하세요", {
-                "1등급",
-                "2등급",
-                "3등급",
-                "4등급",
-                "취소"
-            });
+            int grade_choice = tui_menu("변경할 등급을 선택하세요", {"일반(100MB)",
+                                                                     "비지니스(200MB)",
+                                                                     "VIP(500MB)",
+                                                                     "VVIP(1GB)",
+                                                                     "취소"});
 
-            if (grade_choice == -1 || grade_choice == 4) {
+            if (grade_choice == -1 || grade_choice == 4)
+            {
                 back_to_menu = true;
-            } else {
-                update_type  = "grade";
-                input_value  = std::to_string(grade_choice + 1);
+            }
+            else
+            {
+                update_type = "grade";
+                input_value = std::to_string(grade_choice + 1);
             }
         }
 
-        if (back_to_menu) continue;
-        if (update_type.empty()) continue;
+        if (back_to_menu)
+            continue;
+        if (update_type.empty())
+            continue;
 
         // 서버 요청 전송
         json req = make_request(PKT_SETTINGS_SET_REQ);
         req["user_no"] = g_user_no;
         req["payload"]["update_type"] = update_type;
-        req["payload"]["value"]       = input_value;
+        req["payload"]["value"] = input_value;
 
-        if (!send_json(sock, req)) {
+        if (!send_json(sock, req))
+        {
             tui_menu("[오류] 서버 요청 실패", {"확인"});
             break;
         }
         json resp;
-        if (!recv_json(sock, resp)) {
+        if (!recv_json(sock, resp))
+        {
             tui_menu("[오류] 서버 응답 수신 실패", {"확인"});
             break;
         }
