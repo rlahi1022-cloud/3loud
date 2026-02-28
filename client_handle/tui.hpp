@@ -214,6 +214,10 @@ extern std::atomic<bool>   g_file_transfer_in_progress;
 extern std::atomic<int>    g_upload_progress_pct;   // 0~100, 업로드 스레드가 갱신
 extern std::atomic<int>    g_upload_progress_cur;   // 현재 청크
 extern std::atomic<int>    g_upload_progress_tot;   // 전체 청크
+extern std::atomic<bool>   g_download_in_progress;  // 다운로드 진행 중 플래그
+extern std::atomic<int>    g_download_progress_pct; // 0~100, 다운로드 스레드가 갱신
+extern std::atomic<int>    g_download_progress_cur;
+extern std::atomic<int>    g_download_progress_tot;
 
 inline int tui_menu(const std::string& title,
                     const std::vector<std::string>& items,
@@ -227,8 +231,10 @@ inline int tui_menu(const std::string& title,
     termios old_t; tui_detail::set_raw(old_t); tui_detail::hide_cursor();
 
     bool need_redraw = true;
-    bool last_transfer = false;   // 이전 루프의 전송 상태 (변화 감지용)
-    int  last_pct      = -1;
+    bool last_transfer  = false;
+    bool last_download  = false;
+    int  last_pct       = -1;
+    int  last_dl_pct    = -1;
 
     while (true) {
         // 동적 항목 갱신
@@ -242,12 +248,17 @@ inline int tui_menu(const std::string& title,
             }
         }
 
-        // 전송 상태 변화 감지 → 변화 있으면 footer만 갱신
-        bool cur_transfer = g_file_transfer_in_progress.load();
-        int  cur_pct      = g_upload_progress_pct.load();
-        if (cur_transfer != last_transfer || cur_pct != last_pct) {
+        // 전송/다운로드 상태 변화 감지 → 변화 있으면 footer 갱신
+        bool cur_transfer  = g_file_transfer_in_progress.load();
+        bool cur_download  = g_download_in_progress.load();
+        int  cur_pct       = g_upload_progress_pct.load();
+        int  cur_dl_pct    = g_download_progress_pct.load();
+        if (cur_transfer != last_transfer || cur_download != last_download ||
+            cur_pct != last_pct || cur_dl_pct != last_dl_pct) {
             last_transfer = cur_transfer;
+            last_download = cur_download;
             last_pct      = cur_pct;
+            last_dl_pct   = cur_dl_pct;
             need_redraw   = true;
         }
 
@@ -268,19 +279,37 @@ inline int tui_menu(const std::string& title,
             tui_detail::print_divider('-');
             printf("  [↑↓] 이동   [Enter] 선택   [ESC] 취소\n");
 
-            // 전송 상태 footer
-            if (g_file_transfer_in_progress.load()) {
-                int pct = g_upload_progress_pct.load();
+            // ── 전송 상태 footer (업로드 / 다운로드 각각 표시) ──
+            bool uploading   = g_file_transfer_in_progress.load();
+            bool downloading = g_download_in_progress.load();
+
+            auto make_bar = [](int pct) -> std::string {
+                int fill = pct / 5;
+                std::string bar = "[";
+                for (int b = 0; b < 20; b++) bar += (b < fill) ? '#' : '.';
+                bar += "]";
+                return bar;
+            };
+
+            if (uploading && !downloading) {
+                int pct   = g_upload_progress_pct.load();
                 int cur_c = g_upload_progress_cur.load();
                 int tot_c = g_upload_progress_tot.load();
-                // 진행 바 (20칸)
-                int fill = pct / 5;
-                char bar[32]; int bi=0;
-                bar[bi++]='[';
-                for(int b=0;b<20;b++) bar[bi++]=(b<fill)?'#':'.';
-                bar[bi++]=']'; bar[bi]='\0';
                 printf("  \033[33m[파일 저장 중]\033[0m %s %d%% (%d/%d)\n",
-                       bar, pct, cur_c, tot_c);
+                       make_bar(pct).c_str(), pct, cur_c, tot_c);
+            } else if (downloading && !uploading) {
+                int pct   = g_download_progress_pct.load();
+                int cur_c = g_download_progress_cur.load();
+                int tot_c = g_download_progress_tot.load();
+                if (pct >= 100)
+                    printf("  \033[32m[파일 수신 완료]\033[0m\n");
+                else
+                    printf("  \033[36m[파일 수신 중]\033[0m  %s %d%% (%d/%d)\n",
+                           make_bar(pct).c_str(), pct, cur_c, tot_c);
+            } else if (uploading && downloading) {
+                // 업로드·다운로드 동시 표시 (불가 케이스지만 방어)
+                printf("  \033[33m[업로드]\033[0m %d%%  \033[36m[다운로드]\033[0m %d%%\n",
+                       g_upload_progress_pct.load(), g_download_progress_pct.load());
             } else {
                 printf("\n");  // 빈 줄로 footer 높이 유지
             }
@@ -289,8 +318,9 @@ inline int tui_menu(const std::string& title,
             need_redraw = false;
         }
 
-        // 전송 중이면 100ms, 아니면 500ms 대기
-        int k = (items_fn || g_file_transfer_in_progress.load())
+        // 전송/다운로드 중이면 100ms 주기로 footer 갱신, 아니면 500ms
+        bool any_transfer = g_file_transfer_in_progress.load() || g_download_in_progress.load();
+        int k = (items_fn || any_transfer)
             ? tui_detail::read_key_timeout(100)
             : tui_detail::read_key_timeout(500);
 

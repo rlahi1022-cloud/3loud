@@ -26,6 +26,7 @@
 #include <fstream>
 #include <filesystem>
 #include <thread>
+#include <chrono>
 #include <cstring>
 #include <cstdlib>
 #include <vector>
@@ -48,12 +49,17 @@ using json = nlohmann::json;
 // ─────────────────────────────────────────────────────────────────
 //  전역 정의
 // ─────────────────────────────────────────────────────────────────
-std::atomic<bool> g_file_transfer_in_progress(false);   // 전송 중 플래그
-std::atomic<int>  g_upload_sock(-1);                     // 업로드 전용 소켓 (메인 소켓과 분리)
-std::atomic<int>  g_upload_progress_pct(0);              // 진행률 % (tui_menu footer용)
-std::atomic<int>  g_upload_progress_cur(0);              // 현재 청크
-std::atomic<int>  g_upload_progress_tot(0);              // 전체 청크
-uint32_t g_user_no = 0;                                  // 로그인 후 설정
+std::atomic<bool> g_file_transfer_in_progress(false);   // 전송 중 플래그 (업로드)
+std::atomic<int>  g_upload_sock(-1);                     // 업로드 전용 소켓
+std::atomic<int>  g_download_sock(-1);                   // 다운로드 전용 소켓
+std::atomic<int>  g_upload_progress_pct(0);
+std::atomic<int>  g_upload_progress_cur(0);
+std::atomic<int>  g_upload_progress_tot(0);
+std::atomic<int>  g_download_progress_pct(0);
+std::atomic<int>  g_download_progress_cur(0);
+std::atomic<int>  g_download_progress_tot(0);
+std::atomic<bool> g_download_in_progress(false);
+uint32_t g_user_no = 0;
 
 // ─────────────────────────────────────────────────────────────────
 //  업로드 전용 소켓 연결
@@ -76,6 +82,27 @@ bool connect_upload_socket(const char* ip, int port)
     if (connect(s, (sockaddr*)&addr, sizeof(addr)) < 0) { close(s); return false; }
 
     g_upload_sock.store(s);
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  다운로드 전용 소켓 연결
+// ─────────────────────────────────────────────────────────────────
+bool connect_download_socket(const char* ip, int port)
+{
+    int old = g_download_sock.exchange(-1);
+    if (old >= 0) close(old);
+
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return false;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons((uint16_t)port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) { close(s); return false; }
+    if (connect(s, (sockaddr*)&addr, sizeof(addr)) < 0) { close(s); return false; }
+
+    g_download_sock.store(s);
     return true;
 }
 
@@ -610,60 +637,17 @@ void handle_file_upload(int sock)
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  handle_file_download  (0x0022)
-//  12-2-2: 수신 중 메시지 출력, 완료 메시지 출력
-//  12-2-3: 서버 파일 삭제 안 함
+//  내부: 실제 다운로드 수행 (std::thread에서 호출)
+//  g_download_sock(전용 소켓)만 사용 → 메인 소켓·키 입력과 충돌 없음
 // ─────────────────────────────────────────────────────────────────
-void handle_file_download(int sock)
+static void download_thread(int64_t file_id, const std::string& fname,
+                             const std::string& save_dir)
 {
-    init_dirs();
-
-    if (g_file_transfer_in_progress.load()) {
-        std::cout << "[파일 수신 중] 전송이 완료된 후에 다시 시도하세요.\n";
-        std::cout << "계속하려면 Enter...";
-        std::cin.get();
+    int sock = g_download_sock.load();
+    if (sock < 0) {
+        g_download_in_progress = false;
         return;
     }
-
-    if (g_user_no == 0) {
-        std::cout << "[오류] 로그인이 필요합니다.\n";
-        std::cout << "계속하려면 Enter...";
-        std::cin.get();
-        return;
-    }
-
-    // ── 목록 조회 ──────────────────────────────────────────────────
-    json list_req = make_request(PKT_FILE_LIST_REQ);
-    list_req["user_no"]           = g_user_no;
-    list_req["payload"]["folder"] = "";
-
-    if (!send_json(sock, list_req)) {
-        std::cout << "[오류] 목록 요청 실패\n";
-        std::cout << "계속하려면 Enter...";
-        std::cin.get();
-        return;
-    }
-
-    json list_resp;
-    if (!recv_json(sock, list_resp) || list_resp.value("code", -1) != VALUE_SUCCESS) {
-        std::cout << "[오류] 목록 조회 실패\n";
-        std::cout << "계속하려면 Enter...";
-        std::cin.get();
-        return;
-    }
-
-    json files = list_resp["payload"].value("files", json::array());
-    int64_t used  = list_resp["payload"].value("storage_used",  (int64_t)0);
-    int64_t total = list_resp["payload"].value("storage_total", (int64_t)0);
-
-    // ── 방향키로 파일 선택 ────────────────────────────────────────
-    int choice = tui_select_cloud_file("파일 다운로드", files, used, total);
-    if (choice < 0) return;
-
-    int64_t file_id   = files[choice].value("file_id",   (int64_t)0);
-    std::string fname = files[choice].value("file_name", "file");
-
-    g_file_transfer_in_progress = true;
 
     // ── 0x0022 다운로드 요청 ──────────────────────────────────────
     json req = make_request(PKT_FILE_DOWNLOAD_REQ);
@@ -671,21 +655,13 @@ void handle_file_download(int sock)
     req["payload"]["file_id"] = file_id;
 
     if (!send_json(sock, req)) {
-        std::cout << "[오류] 다운로드 요청 전송 실패\n";
-        g_file_transfer_in_progress = false;
+        g_download_in_progress = false;
         return;
     }
 
     json resp;
-    if (!recv_json(sock, resp)) {
-        std::cout << "[오류] 서버 응답 수신 실패\n";
-        g_file_transfer_in_progress = false;
-        return;
-    }
-
-    if (resp.value("code", -1) != VALUE_SUCCESS) {
-        std::cout << "[오류] " << resp.value("msg", "다운로드 실패") << "\n";
-        g_file_transfer_in_progress = false;
+    if (!recv_json(sock, resp) || resp.value("code", -1) != VALUE_SUCCESS) {
+        g_download_in_progress = false;
         return;
     }
 
@@ -693,24 +669,7 @@ void handle_file_download(int sock)
     int64_t fsize = mp.value("file_size",    (int64_t)0);
     int64_t tc    = mp.value("total_chunks", (int64_t)1);
 
-    // ── 저장 위치 탐색기로 선택 (13-3-3) ─────────────────────────
-    // 설정에 저장된 폴더를 탐색 시작점으로 사용 (13-3-3: 받는 위치 설정 반영)
-    FileSettings dl_cfg  = load_file_settings();
-    std::string  dl_base = get_download_dir(dl_cfg); // 설정 폴더 or 기본값 (13-3-3-1 적용)
-
-    std::cout << "\n저장할 폴더를 선택하세요. (Enter로 탐색기 시작)\n";
-    std::cout << "  기본 위치: " << dl_base << "\n";
-    std::cin.get();
-
-    std::string save_dir = tui_browse_dir(dl_base);  // 설정된 폴더에서 탐색 시작
-    if (save_dir.empty()) {
-        save_dir = dl_base;                           // 취소 시 설정 폴더(또는 기본 Downloads)로 저장
-        printf("\033[H\033[J");
-        std::cout << "[안내] 설정 폴더에 저장합니다: " << save_dir << "\n";
-    }
-
-    // ── 중복 파일명 방지 (요구사항 12-1-11, 다운로드에도 동일 적용) ──
-    // 같은 폴더에 동일 이름이 있으면 name_1.ext, name_2.ext ... 로 변경
+    // 중복 파일명 방지 (요구사항 12-1-11)
     auto resolve_local = [](const std::string& dir, const std::string& filename) -> std::string {
         if (!fs::exists(fs::path(dir) / filename)) return filename;
         std::string stem = fs::path(filename).stem().string();
@@ -725,33 +684,22 @@ void handle_file_download(int sock)
     std::string resolved_name = resolve_local(save_dir, fname);
     std::string save_path     = save_dir + "/" + resolved_name;
 
-    printf("\033[H\033[J");
-    std::cout << "==========================================\n";
-    std::cout << "  [파일 수신 중]\n";
-    std::cout << "  파일명: " << resolved_name;
-    if (resolved_name != fname)
-        std::cout << "  (원본: " << fname << ")";
-    std::cout << "\n";
-    std::cout << "  크기: " << human_size(fsize) << "\n";
-    std::cout << "  저장 위치: " << save_path << "\n";
-    std::cout << "==========================================\n";
+    // 진행률 초기화
+    g_download_progress_pct.store(0);
+    g_download_progress_cur.store(0);
+    g_download_progress_tot.store((int)tc);
 
-    // ── 청크 수신 루프 ────────────────────────────────────────────
     std::ofstream ofs(save_path, std::ios::binary | std::ios::trunc);
     if (!ofs.is_open()) {
-        std::cout << "[오류] 파일 생성 실패: " << save_path << "\n";
-        g_file_transfer_in_progress = false;
+        g_download_in_progress = false;
         return;
     }
 
     bool success = true;
     for (int64_t i = 0; i < tc; ++i) {
         json chunk;
-        if (!recv_json(sock, chunk)) {
-            std::cout << "\n[오류] 청크 수신 실패\n";
-            success = false;
-            break;
-        }
+        if (!recv_json(sock, chunk)) { success = false; break; }
+
         int type = chunk.value("type", 0);
         if (type == PKT_FILE_DOWNLOAD_REQ && chunk.value("msg","") == "다운로드 완료") break;
 
@@ -761,27 +709,95 @@ void handle_file_download(int sock)
                   static_cast<std::streamsize>(data.size()));
 
         int pct = (int)(((i + 1) * 100) / tc);
-        std::cout << "\r  진행: " << pct << "% (" << i+1 << "/" << tc << ")   " << std::flush;
+        g_download_progress_pct.store(pct);
+        g_download_progress_cur.store((int)(i + 1));
     }
     ofs.close();
 
     if (success) {
+        // 완료 패킷 수신 (서버가 마지막에 추가로 보내는 경우)
         json done;
         recv_json(sock, done);
-        printf("\033[H\033[J");
-        std::cout << "==========================================\n";
-        std::cout << "  [파일 수신 완료]\n";
-        std::cout << "  파일명: " << resolved_name << "\n";
-        std::cout << "  저장 위치: " << save_path << "\n";
-        std::cout << "==========================================\n";
+        // 완료 메시지는 tui footer → 완료 후 1초 유지 후 초기화
+        g_download_progress_pct.store(100);
     } else {
         fs::remove(save_path);
-        std::cout << "\n[파일 수신 실패] 불완전 파일 삭제됨\n";
     }
 
+    // 잠깐 유지해 사용자가 footer 완료 메시지를 볼 수 있게 함
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    g_download_progress_pct.store(0);
+    g_download_progress_cur.store(0);
+    g_download_progress_tot.store(0);
+    g_download_in_progress = false;
+    // g_file_transfer_in_progress도 해제 (업로드와 공유 중복방지 플래그)
     g_file_transfer_in_progress = false;
-    std::cout << "계속하려면 Enter...";
-    std::cin.get();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  handle_file_download  (0x0022)
+//  파일 선택·저장 폴더 결정까지만 메인 스레드에서 처리,
+//  실제 수신은 download_thread(전용 소켓)에서 백그라운드로 진행
+// ─────────────────────────────────────────────────────────────────
+void handle_file_download(int sock)
+{
+    init_dirs();
+
+    if (g_file_transfer_in_progress.load()) {
+        tui_menu("[알림] 파일 전송이 진행 중입니다.\n  완료 후 다시 시도하세요.", {"확인"});
+        return;
+    }
+
+    if (g_user_no == 0) {
+        tui_menu("[오류] 로그인이 필요합니다.", {"확인"});
+        return;
+    }
+
+    // ── 목록 조회 (메인 소켓 사용 — 전송 전이므로 안전) ──────────
+    json list_req = make_request(PKT_FILE_LIST_REQ);
+    list_req["user_no"]           = g_user_no;
+    list_req["payload"]["folder"] = "";
+
+    if (!send_json(sock, list_req)) {
+        tui_menu("[오류] 목록 요청 실패", {"확인"});
+        return;
+    }
+
+    json list_resp;
+    if (!recv_json(sock, list_resp) || list_resp.value("code", -1) != VALUE_SUCCESS) {
+        tui_menu("[오류] 목록 조회 실패", {"확인"});
+        return;
+    }
+
+    json files = list_resp["payload"].value("files", json::array());
+    int64_t used  = list_resp["payload"].value("storage_used",  (int64_t)0);
+    int64_t total = list_resp["payload"].value("storage_total", (int64_t)0);
+
+    // ── 방향키로 파일 선택 ────────────────────────────────────────
+    int choice = tui_select_cloud_file("파일 다운로드", files, used, total);
+    if (choice < 0) return;
+
+    int64_t file_id   = files[choice].value("file_id",   (int64_t)0);
+    std::string fname = files[choice].value("file_name", "file");
+
+    // ── 저장 위치 선택 ─────────────────────────────────────────────
+    FileSettings dl_cfg  = load_file_settings();
+    std::string  dl_base = get_download_dir(dl_cfg);
+
+    std::string save_dir = tui_browse_dir(dl_base);
+    if (save_dir.empty()) save_dir = dl_base;
+
+    // ── 다운로드 전용 소켓으로 백그라운드 스레드 시작 ──────────────
+    g_file_transfer_in_progress = true;
+    g_download_in_progress      = true;
+    g_download_progress_pct.store(0);
+    g_download_progress_cur.store(0);
+    g_download_progress_tot.store(0);
+
+    std::thread t(download_thread, file_id, fname, save_dir);
+    t.detach();
+    // 함수 반환 → 메인 메뉴로 즉시 복귀, 다운로드는 백그라운드 진행
 }
 void handle_file_delete(int sock)
 {
