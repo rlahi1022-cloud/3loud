@@ -208,6 +208,12 @@ inline int read_key() {
 //            (실시간 [!] 뱃지 갱신에 사용)
 // ─────────────────────────────────────────────────────────────────
 #include <functional>
+// 파일 전송 상태 공유 변수 (file_client.cpp에서 정의)
+// tui_menu가 footer에 전송 진행률을 표시하기 위해 참조
+extern std::atomic<bool>   g_file_transfer_in_progress;
+extern std::atomic<int>    g_upload_progress_pct;   // 0~100, 업로드 스레드가 갱신
+extern std::atomic<int>    g_upload_progress_cur;   // 현재 청크
+extern std::atomic<int>    g_upload_progress_tot;   // 전체 청크
 
 inline int tui_menu(const std::string& title,
                     const std::vector<std::string>& items,
@@ -217,10 +223,12 @@ inline int tui_menu(const std::string& title,
     std::vector<std::string> cur_items = items;
     int cur=0, offset=0;
     int n=(int)cur_items.size();
-    const int HDR=4, FTR=2;
+    const int HDR=4, FTR=3;  // footer 1줄 늘림 (전송 상태 표시용)
     termios old_t; tui_detail::set_raw(old_t); tui_detail::hide_cursor();
 
     bool need_redraw = true;
+    bool last_transfer = false;   // 이전 루프의 전송 상태 (변화 감지용)
+    int  last_pct      = -1;
 
     while (true) {
         // 동적 항목 갱신
@@ -232,6 +240,15 @@ inline int tui_menu(const std::string& title,
                 cur        = std::min(cur, n - 1);
                 need_redraw = true;
             }
+        }
+
+        // 전송 상태 변화 감지 → 변화 있으면 footer만 갱신
+        bool cur_transfer = g_file_transfer_in_progress.load();
+        int  cur_pct      = g_upload_progress_pct.load();
+        if (cur_transfer != last_transfer || cur_pct != last_pct) {
+            last_transfer = cur_transfer;
+            last_pct      = cur_pct;
+            need_redraw   = true;
         }
 
         if (need_redraw) {
@@ -250,17 +267,34 @@ inline int tui_menu(const std::string& title,
 
             tui_detail::print_divider('-');
             printf("  [↑↓] 이동   [Enter] 선택   [ESC] 취소\n");
+
+            // 전송 상태 footer
+            if (g_file_transfer_in_progress.load()) {
+                int pct = g_upload_progress_pct.load();
+                int cur_c = g_upload_progress_cur.load();
+                int tot_c = g_upload_progress_tot.load();
+                // 진행 바 (20칸)
+                int fill = pct / 5;
+                char bar[32]; int bi=0;
+                bar[bi++]='[';
+                for(int b=0;b<20;b++) bar[bi++]=(b<fill)?'#':'.';
+                bar[bi++]=']'; bar[bi]='\0';
+                printf("  \033[33m[파일 저장 중]\033[0m %s %d%% (%d/%d)\n",
+                       bar, pct, cur_c, tot_c);
+            } else {
+                printf("\n");  // 빈 줄로 footer 높이 유지
+            }
+
             fflush(stdout);
             need_redraw = false;
         }
 
-        // 100ms 타임아웃으로 키 대기 → items_fn 있으면 주기적 갱신
-        int k = (items_fn)
+        // 전송 중이면 100ms, 아니면 500ms 대기
+        int k = (items_fn || g_file_transfer_in_progress.load())
             ? tui_detail::read_key_timeout(100)
             : tui_detail::read_key_timeout(500);
 
         if (k == -2) {
-            // 타임아웃: need_redraw는 items_fn 비교 결과가 이미 반영됨 → 그대로 continue
             continue;
         }
 
